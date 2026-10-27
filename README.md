@@ -1,8 +1,8 @@
-# PodBridge
+# PodTide
 
-PodBridge 是一款面向 Android 的开源 AirPods 伴侣应用，提供电量显示、连接辅助和耳机控制。应用基于 [CAPod](https://github.com/d4rken-org/capod)，并参考 [LibrePods](https://github.com/librepods-org/librepods) 的协议与功能实现。
+PodTide 是一款面向 Android 的开源 AirPods 伴侣应用，提供电量显示、连接辅助和耳机控制。应用基于 [CAPod](https://github.com/d4rken-org/capod)，并参考 [LibrePods](https://github.com/librepods-org/librepods) 的协议与功能实现。
 
-> **后台运行提示：请检查手机对 PodBridge 的电池和后台活动限制。** 为了在应用位于后台时检测耳机、显示弹窗和尝试自动连接，建议在系统应用设置中允许后台活动。不同品牌和系统的名称、路径可能不同。
+> **后台运行提示：请检查手机对 PodTide 的电池和后台活动限制。** 为了在应用位于后台时检测耳机、显示弹窗和尝试自动连接，建议在系统应用设置中允许后台活动。不同品牌和系统的名称、路径可能不同。
 >
 > **OPPO / ColorOS 示例：** 系统应用详情 → 耗电管理 → 完全允许后台行为。Find X9 上的初步测试中，允许该选项后，原本因系统冻结而失效的后台开盖连接恢复；用户也确认 dev7 等待至少30秒后后台开盖连接及弹窗动画正常。其他 Android 设备请在各自的系统设置中寻找相应选项。
 
@@ -10,8 +10,8 @@ PodBridge 是一款面向 Android 的开源 AirPods 伴侣应用，提供电量�
 
 - Android 8.0（API 26）及以上；耳机功能取决于型号、固件以及手机蓝牙实现。
 - 首台测试设备是 OPPO Find X9 / ColorOS，耳机为 AirPods Pro 3。项目面向其他满足系统要求的 Android 设备，欢迎反馈具体机型与系统版本。
-- 从 [GitHub Releases](https://github.com/Stormlyd/PodBridge/releases/latest) 下载 APK，传到手机并安装。按系统提示授予附近设备、通知及其他与所用功能相关的权限。
-- 已安装相同签名的 PodBridge 开发版可直接覆盖更新。自行编译的 APK 如果签名不同，需要按 Android 的应用安装规则处理。
+- 从 [GitHub Releases](https://github.com/Stormlyd/PodTide/releases/latest) 下载 APK，传到手机并安装。按系统提示授予附近设备、通知及其他与所用功能相关的权限。
+- 已安装相同签名的 PodTide 开发版可直接覆盖更新。自行编译的 APK 如果签名不同，需要按 Android 的应用安装规则处理。
 
 ## 已有功能
 
@@ -26,7 +26,7 @@ PodBridge 是一款面向 Android 的开源 AirPods 伴侣应用，提供电量�
 
 自动连接条件推荐选择“开盖时”：它可以避免关盖时发起连接尝试。为了发现下次开盖，应用仍需在后台监听蓝牙广播。后台扫描速度及弹窗出现时间可能因手机、电池策略和系统版本而异。
 
-如果后台无电量更新或开盖不重连，请先检查蓝牙、附近设备和通知权限，再检查系统电池管理是否允许 PodBridge 后台活动。应用提供“后台运行帮助”入口；厂商专属开关的实际状态需要在系统设置中确认。
+如果后台无电量更新或开盖不重连，请先检查蓝牙、附近设备和通知权限，再检查系统电池管理是否允许 PodTide 后台活动。应用提供“后台运行帮助”入口；厂商专属开关的实际状态需要在系统设置中确认。
 
 ## 已处理的关键问题
 
@@ -51,4 +51,4 @@ Windows 可使用 `gradlew.bat`。正式发行包使用 `assembleFossRelease`，
 
 ## 开源与致谢
 
-项目以 GPL-3.0 发布，保留上游版权声明；第三方组件与许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。感谢 [CAPod](https://github.com/d4rken-org/capod) 与 [LibrePods](https://github.com/librepods-org/librepods) 项目及其贡献者。PodBridge 是独立项目，与 Apple 没有官方关联；AirPods 等商标属于其各自权利人。
+项目以 GPL-3.0 发布，保留上游版权声明；第三方组件与许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。感谢 [CAPod](https://github.com/d4rken-org/capod) 与 [LibrePods](https://github.com/librepods-org/librepods) 项目及其贡献者。PodTide 是独立项目，与 Apple 没有官方关联；AirPods 等商标属于其各自权利人。
