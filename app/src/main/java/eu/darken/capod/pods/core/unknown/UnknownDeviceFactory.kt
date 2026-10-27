@@ -1,0 +1,152 @@
+package eu.darken.capod.pods.core.unknown
+
+import eu.darken.capod.common.bluetooth.BleScanResult
+import eu.darken.capod.common.SystemTimeSource
+import eu.darken.capod.common.debug.logging.Logging.Priority.VERBOSE
+import eu.darken.capod.common.debug.logging.log
+import eu.darken.capod.common.debug.logging.logTag
+import eu.darken.capod.pods.core.apple.ble.BlePodSnapshot
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.time.Duration
+import java.time.Instant
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class UnknownDeviceFactory @Inject constructor() {
+
+    private val lock = Mutex()
+
+    suspend fun create(scanResult: BleScanResult): BlePodSnapshot = lock.withLock {
+        var basic = UnknownSnapshotBle(
+            identifier = BlePodSnapshot.Id(),
+            scanResult = scanResult,
+        )
+        val result = searchHistory(basic)
+
+        if (result != null) basic = basic.copy(identifier = result.id)
+        val latest = result?.history?.lastOrNull()
+        val latestMeasured = latest?.scanResult?.observedElapsedRealtimeNanos
+        val incomingMeasured = scanResult.observedElapsedRealtimeNanos
+        if (latestMeasured != null && (incomingMeasured == null || incomingMeasured < latestMeasured)) {
+            return@withLock result.publishedSnapshot ?: latest
+        }
+        updateHistory(basic)
+
+        if (result == null) {
+            recordPublished(basic)
+            return@withLock basic
+        }
+
+        val published = basic.copy(
+            identifier = result.id,
+            seenFirstAt = result.seenFirstAt,
+            seenLastAt = scanResult.observedAt ?: scanResult.receivedAt,
+            seenCounter = result.seenCounter,
+            reliability = result.confidence,
+            rssiAverage = result.rssiSmoothed(basic.rssi),
+        )
+        recordPublished(published)
+        published
+    }
+
+    data class KnownDevice(
+        val id: BlePodSnapshot.Id,
+        val seenFirstAt: Instant,
+        val seenCounter: Int,
+        val history: List<BlePodSnapshot>,
+        /** Kept apart from raw history so recovered values do not extend their expiry. */
+        val publishedSnapshot: BlePodSnapshot? = null,
+    ) {
+
+        val lastAddress: String
+            get() = history.last().address
+
+        val confidence: Float
+            get() = 0.75f + (history.size / (MAX_HISTORY * 4f))
+
+        fun rssiSmoothed(latest: Int): Int =
+            history.map { it.rssi }.plus(latest).takeLast(10).median()
+
+        fun isOlderThan(age: Duration): Boolean {
+            val now = SystemTimeSource.now()
+            return Duration.between(history.last().seenLastAt, now) > age
+        }
+
+        private fun List<Int>.median(): Int = this.sorted().let {
+            if (it.size % 2 == 0)
+                (it[it.size / 2] + it[(it.size - 1) / 2]) / 2
+            else
+                it[it.size / 2]
+        }
+
+        override fun toString(): String = "KnownDevice(history=${history.size}, last=${history.last()})"
+
+        companion object {
+            const val MAX_HISTORY = 20
+        }
+    }
+
+    private val knownDevices = mutableMapOf<BlePodSnapshot.Id, KnownDevice>()
+
+    private fun searchHistory(current: BlePodSnapshot): KnownDevice? {
+        val scanResult = current.scanResult
+
+        knownDevices.values.toList().forEach { knownDevice ->
+            if (knownDevice.isOlderThan(Duration.ofSeconds(20))) {
+                log(TAG, VERBOSE) { "searchHistory1: Removing stale known device: $knownDevice" }
+                knownDevices.remove(knownDevice.id)
+            }
+        }
+
+        knownDevices.values
+            .filter { it.history.size > KnownDevice.MAX_HISTORY }
+            .toList()
+            .forEach {
+                knownDevices[it.id] = it.copy(history = it.history.takeLast(KnownDevice.MAX_HISTORY))
+            }
+
+        val recognizedDevice: KnownDevice? = knownDevices.values
+            .firstOrNull { it.lastAddress == scanResult.address }
+            ?.also { log(TAG, VERBOSE) { "searchHistory1: Recovered previous ID via address: $it" } }
+
+        if (recognizedDevice == null) {
+            log(TAG) { "searchHistory1: Didn't recognize: $current" }
+        }
+
+        return recognizedDevice
+    }
+
+    private fun updateHistory(device: BlePodSnapshot) {
+        val existing = knownDevices[device.identifier]
+
+        knownDevices[device.identifier] = when {
+            existing != null -> {
+                existing.copy(
+                    seenCounter = existing.seenCounter + 1,
+                    history = existing.history.plus(device)
+                )
+            }
+
+            else -> {
+                log(TAG) { "searchHistory1: Creating new history for $device" }
+                KnownDevice(
+                    id = device.identifier,
+                    seenFirstAt = device.seenFirstAt,
+                    seenCounter = 1,
+                    history = listOf(device)
+                )
+            }
+        }
+    }
+
+    private fun recordPublished(device: BlePodSnapshot) {
+        val existing = knownDevices[device.identifier] ?: return
+        knownDevices[device.identifier] = existing.copy(publishedSnapshot = device)
+    }
+
+    companion object {
+        private val TAG = logTag("Pod", "Unknown", "Factory")
+    }
+}

@@ -1,0 +1,14 @@
+<resources>
+    <string name="settings_background_help_title">后台运行帮助</string>
+    <string name="settings_background_help_summary">检查 Android 电池和后台活动限制</string>
+    <string name="settings_background_help_body">如果后台监测中断，请检查系统对 PodBridge 的电池和后台活动限制。菜单名称和路径会随手机厂商及 Android 版本变化，下方 ColorOS 路径仅作示例。PodBridge 无法读取该厂商选项的状态。忽略 Android 电池优化也不等于已开启“完全允许后台行为”。</string>
+    <string name="settings_background_help_path">OPPO / ColorOS 示例：应用详情 → 耗电管理 → 完全允许后台行为</string>
+    <string name="settings_background_help_open">打开系统应用详情</string>
+    <string name="settings_background_help_failure">无法打开系统应用详情。</string>
+    <string name="settings_find_airpods_title">查找 AirPods</string>
+    <string name="settings_find_airpods_summary">在浏览器中打开 Apple 查找网页</string>
+    <string name="settings_find_airpods_body">请使用与 AirPods 配对的 Apple 账户登录 Apple 查找网页，然后选择耳机。位置可能是当前位置或最后已知位置。能否让耳机播放声音取决于设备状态。网页无法让 AirPods Pro 3 充电盒响铃；精确方向和距离需要兼容的 iPhone。</string>
+    <string name="settings_find_airpods_open">打开 Apple 查找网页</string>
+    <string name="settings_find_airpods_failure">无法打开 Apple 查找网页。</string>
+    <string name="settings_help_close">关闭</string>
+</resources>

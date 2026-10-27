@@ -1,0 +1,75 @@
+package eu.darken.capod.monitor.core.receiver
+
+import android.bluetooth.BluetoothA2dp
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothHeadset
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import dagger.hilt.android.AndroidEntryPoint
+import eu.darken.capod.common.bluetooth.BluetoothManager2
+import eu.darken.capod.common.bluetooth.hasFeature
+import eu.darken.capod.common.debug.logging.Logging.Priority.WARN
+import eu.darken.capod.common.debug.logging.log
+import eu.darken.capod.common.debug.logging.logTag
+import eu.darken.capod.monitor.core.worker.MonitorControl
+import eu.darken.capod.pods.core.apple.ble.protocol.ContinuityProtocol
+import javax.inject.Inject
+
+@AndroidEntryPoint
+class BluetoothEventReceiver : BroadcastReceiver() {
+
+    @Inject lateinit var monitorControl: MonitorControl
+    @Inject lateinit var bluetoothManager: BluetoothManager2
+
+    override fun onReceive(context: Context, intent: Intent) {
+        log(TAG) { "onReceive($context, $intent)" }
+        if (!EXPECTED_ACTIONS.contains(intent.action)) {
+            log(TAG, WARN) { "Unknown action: ${intent.action}" }
+            return
+        }
+
+        val bluetoothDevice = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+        if (bluetoothDevice == null) {
+            log(TAG, WARN) { "Event without Bluetooth device association." }
+            return
+        } else {
+            log(TAG) { "Event related to $bluetoothDevice" }
+        }
+        val supportedFeatures = try {
+            ContinuityProtocol.BLE_FEATURE_UUIDS.filter { bluetoothDevice.hasFeature(it) }
+        } catch (e: SecurityException) {
+            log(TAG, WARN) { "Missing BLUETOOTH_CONNECT, can't check device features: ${e.message}" }
+            return
+        }
+
+        if (supportedFeatures.isEmpty()) {
+            log(TAG) { "Device has no features we support." }
+            return
+        } else {
+            log(TAG) { "Device has the following we features we support $supportedFeatures" }
+        }
+
+        when (intent.action) {
+            BluetoothDevice.ACTION_ACL_CONNECTED -> bluetoothManager.markDeviceConnected(bluetoothDevice.address)
+            BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                bluetoothManager.markDeviceDisconnected(bluetoothDevice.address)
+                // A disconnect is not a reason to start monitoring.
+                return
+            }
+        }
+
+        log(TAG) { "Starting monitor" }
+        monitorControl.startMonitor(forceStart = false)
+    }
+
+    companion object {
+        private val TAG = logTag("Monitor", "EventReceiver")
+        private val EXPECTED_ACTIONS = setOf(
+            BluetoothDevice.ACTION_ACL_CONNECTED,
+            BluetoothDevice.ACTION_ACL_DISCONNECTED,
+            BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED,
+            BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED
+        )
+    }
+}

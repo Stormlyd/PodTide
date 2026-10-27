@@ -1,0 +1,30 @@
+<resources>
+    <string name="head_preview_title">Head pose and gesture test</string>
+    <string name="head_preview_entry_description">Experimental relative orientation and safe recognition preview</string>
+    <string name="head_preview_back">Back</string>
+    <string name="head_preview_start">Start preview</string>
+    <string name="head_preview_stop">Stop preview</string>
+    <string name="head_preview_recalibrate">Recalibrate</string>
+    <string name="head_preview_reset_counts">Reset counts</string>
+    <string name="head_preview_sound">Sound feedback (opt in)</string>
+    <string name="head_preview_waiting_monitor">Waiting for monitor to start</string>
+    <string name="head_preview_choose_primary">Choose this device as the primary AirPods device</string>
+    <string name="head_preview_waiting_audio">Waiting for system audio connection</string>
+    <string name="head_preview_waiting_aap">Waiting for AAP control channel</string>
+    <string name="head_preview_wear">Wear an earbud to receive sensor reports</string>
+    <string name="head_preview_waiting_samples">Waiting for head sensor reports</string>
+    <string name="head_preview_start_failed">Could not start head sensor stream; reconnect and retry</string>
+    <string name="head_preview_calibrating">Keep your head still for 10 stable samples</string>
+    <string name="head_preview_paused_call">Preview paused during a call; enabled call gestures keep priority</string>
+    <string name="head_preview_stale">No recent report; pose hidden</string>
+    <string name="head_preview_unknown_call">Phone state unknown; actions and tones disabled</string>
+    <string name="head_preview_experimental">Experimental relative pose estimate. Axis direction and firmware support need device verification.</string>
+    <string name="head_preview_safe">Test mode recognizes gestures without music actions.</string>
+    <string name="head_preview_pitch">Relative pitch: %1$.1f°</string>
+    <string name="head_preview_yaw">Relative yaw: %1$.1f°</string>
+    <string name="head_preview_motion">Raw motion H %1$d · V %2$d</string>
+    <string name="head_preview_age">Last report: %1$d ms ago</string>
+    <string name="head_preview_counts">Nods %1$d · Shakes %2$d</string>
+    <string name="head_preview_progress">Calibration: %1$d / 10</string>
+    <string name="head_preview_no_measurement">No live measurement</string>
+</resources>

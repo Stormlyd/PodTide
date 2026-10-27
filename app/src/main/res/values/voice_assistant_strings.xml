@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="press_action_voice_assistant">Phone voice assistant</string>
+    <string name="voice_assistant_not_configured">No voice assistant is available. Check your default digital assistant in system settings.</string>
+    <string name="voice_assistant_blocked">Your system blocked the voice assistant request. Retry with this app open.</string>
+    <string name="voice_assistant_mapping_note">Uses your default system assistant. Lock-screen and background access depend on your phone.</string>
+</resources>

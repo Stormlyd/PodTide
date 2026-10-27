@@ -1,0 +1,12 @@
+<resources>
+    <string name="popup_audio_connected">Audio connected</string>
+    <string name="popup_device_detected">Device detected</string>
+    <string name="popup_left">Left</string>
+    <string name="popup_case">Case</string>
+    <string name="popup_right">Right</string>
+    <string name="popup_headset">Headphones</string>
+    <string name="popup_battery_missing">—</string>
+    <string name="popup_battery_unknown">Battery unavailable</string>
+    <string name="popup_charging">Charging</string>
+    <string name="popup_unknown_device">Battery information is not available for this device.</string>
+</resources>

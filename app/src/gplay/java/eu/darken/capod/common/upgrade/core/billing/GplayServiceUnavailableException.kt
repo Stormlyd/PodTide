@@ -1,0 +1,59 @@
+package eu.darken.capod.common.upgrade.core.billing
+
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import eu.darken.capod.R
+import eu.darken.capod.common.debug.logging.Logging.Priority.ERROR
+import eu.darken.capod.common.debug.logging.log
+import eu.darken.capod.common.error.HasLocalizedError
+import eu.darken.capod.common.error.LocalizedError
+import eu.darken.capod.common.debug.logging.logTag
+
+class GplayServiceUnavailableException(cause: Throwable) :
+    BillingException("Google Play services are unavailable.", cause), HasLocalizedError {
+
+    override fun getLocalizedError(context: Context): LocalizedError = LocalizedError(
+        throwable = this,
+        label = context.getString(R.string.upgrades_gplay_unavailable_error),
+        description = context.getString(R.string.upgrades_gplay_unavailable_error_description),
+        // Deliberately untranslated brand name.
+        fixActionLabel = "Google Play",
+        // BillingManager also maps transient timeout/network failures onto this exception, so the
+        // action is a GENERIC troubleshooting affordance (open Play's app info), not a diagnosis of
+        // the cause. Harmless for a transient blip, and it matches the fleet's dialog.
+        fixAction = { activity ->
+            val intent = Intent().apply {
+                action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+                data = Uri.fromParts("package", GPLAY_PKG, null)
+            }
+
+            try {
+                activity.startActivity(intent)
+            } catch (e: ActivityNotFoundException) {
+                onLaunchFailed(e)
+                throw e
+            } catch (e: SecurityException) {
+                // Play can be installed but unreachable: disabled app, work/restricted profile or a
+                // ROM that guards the settings screen. The launch is denied, not unresolvable.
+                onLaunchFailed(e)
+                throw e
+            }
+        },
+        // The failure is not presented here: it propagates to the dialog, which renders this inline.
+        // A Toast caps at 2 lines and clipped this message (in French mid-word, dropping a whole
+        // condition), so the container was the defect, not the wording.
+        fixActionErrorMessage = context.getString(R.string.upgrades_gplay_not_installed_message),
+    )
+
+    private fun onLaunchFailed(e: Exception) {
+        log(TAG, ERROR) { "Can't launch settings intent for Google Play: $e" }
+    }
+
+    companion object {
+        private const val GPLAY_PKG = "com.android.vending"
+        private val TAG = logTag("Upgrade", "Gplay", "ServiceUnavailable")
+    }
+}

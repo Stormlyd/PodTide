@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="MyCardView" parent="Widget.Material3.CardView.Outlined">
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:layout_marginEnd">8dp</item>
+    </style>
+
+    <style name="Notification">
+
+    </style>
+
+    <style name="Notification.Container">
+        <!--        <item name="android:background">?android:attr/colorBackground</item>-->
+    </style>
+
+    <style name="PodInfoItemIcon.Notification" parent="TextAppearance.Compat.Notification.Title">
+        <item name="android:layout_height">20dp</item>
+        <item name="android:layout_width">20dp</item>
+        <item name="android:tintMode">src_in</item>
+        <item name="android:tint">@color/notification_icon_tint</item>
+    </style>
+
+    <style name="PodInfoItemIcon.Notification.Large" parent="PodInfoItemIcon.Notification">
+        <item name="android:layout_height">40dp</item>
+        <item name="android:layout_width">40dp</item>
+    </style>
+
+    <style name="PodInfoItemText.Notification" parent="TextAppearance.Compat.Notification.Title">
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="PodInfoItemIcon" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:layout_height">20dp</item>
+        <item name="android:layout_width">20dp</item>
+        <item name="android:tintMode">multiply</item>
+        <item name="android:tint">?android:attr/colorControlNormal</item>
+        <item name="tint">?android:attr/colorControlNormal</item>
+    </style>
+
+    <style name="PodInfoItemIcon.Popup">
+        <item name="android:layout_height">24dp</item>
+        <item name="android:layout_width">24dp</item>
+    </style>
+
+    <style name="PodInfoItemIcon.Popup.Large">
+        <item name="android:layout_height">64dp</item>
+        <item name="android:layout_width">64dp</item>
+    </style>
+
+    <style name="PodInfoItemText" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="PodWidget">
+
+    </style>
+
+    <style name="PodWidget.Container">
+        <item name="android:background">@drawable/widget_container_bg</item>
+        <item name="android:theme">@style/Theme.Material3.DynamicColors.DayNight</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:paddingTop">4dp</item>
+        <item name="android:paddingBottom">4dp</item>
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:id">@id/widget_root</item>
+        <item name="android:gravity">center</item>
+    </style>
+
+    <style name="PodWidget.TextPrimary">
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+    </style>
+
+    <style name="PodWidget.TextSecondary">
+        <item name="android:textColor">?android:attr/textColorSecondary</item>
+    </style>
+</resources>

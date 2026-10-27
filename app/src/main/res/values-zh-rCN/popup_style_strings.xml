@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="popup_styles_title">弹窗样式</string>
+    <string name="popup_style_bottom">底部弹窗</string>
+    <string name="popup_style_top">顶部状态弹窗</string>
+    <string name="popup_styles_summary">两种样式均使用各设备设置中的开盒和连接触发条件。</string>
+</resources>

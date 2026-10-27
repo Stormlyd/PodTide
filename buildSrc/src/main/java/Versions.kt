@@ -1,0 +1,39 @@
+object Versions {
+    object Kotlin {
+        const val core = "2.2.10"
+        const val coroutines = "1.8.0"
+    }
+
+    object Dagger {
+        const val core = "2.57.1"
+    }
+
+    object AndroidX {
+        // 1.2.0 is a floor, not a preference: androidx.hilt's 1.0.0 compiler ships only a
+        // javax.annotation.processing.Processor, no KSP SymbolProcessorProvider, so under this
+        // project's KSP setup it generates nothing at all (e.g. for @HiltWorker).
+        object Hilt {
+            const val core = "1.2.0"
+        }
+
+        object Navigation {
+            const val core = "2.9.3"
+        }
+    }
+
+    object Compose {
+        const val bom = "2025.10.00"
+    }
+
+    object Navigation3 {
+        const val core = "1.0.0"
+    }
+
+    object Glance {
+        const val core = "1.2.0-rc01"
+    }
+
+    object Serialization {
+        const val core = "1.9.0"
+    }
+}

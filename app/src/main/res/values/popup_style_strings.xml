@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="popup_styles_title">Popup styles</string>
+    <string name="popup_style_bottom">Bottom popup</string>
+    <string name="popup_style_top">Top status popup</string>
+    <string name="popup_styles_summary">Both styles use the case-open and connection triggers configured for each device.</string>
+</resources>

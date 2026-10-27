@@ -1,0 +1,640 @@
+package eu.darken.capod.main.ui.devicesettings
+
+import dagger.hilt.android.lifecycle.HiltViewModel
+import eu.darken.capod.common.SystemTimeSource
+import eu.darken.capod.common.TimeSource
+import eu.darken.capod.common.WebpageTool
+import eu.darken.capod.common.bluetooth.BluetoothManager2
+import eu.darken.capod.common.bluetooth.NudgeAttemptResult
+import eu.darken.capod.common.bluetooth.NudgeAvailability
+import eu.darken.capod.common.bluetooth.NudgeCapabilityStore
+import eu.darken.capod.common.coroutine.DispatcherProvider
+import eu.darken.capod.common.debug.logging.Logging.Priority.INFO
+import eu.darken.capod.common.debug.logging.Logging.Priority.WARN
+import eu.darken.capod.common.debug.logging.log
+import eu.darken.capod.common.debug.logging.logTag
+import eu.darken.capod.common.flow.SingleEventFlow
+import eu.darken.capod.common.navigation.Nav
+import eu.darken.capod.common.uix.ViewModel4
+import eu.darken.capod.common.upgrade.UpgradeRepo
+import eu.darken.capod.common.upgrade.isProForUi
+import eu.darken.capod.main.core.MonitorMode
+import eu.darken.capod.monitor.core.DeviceMonitor
+import eu.darken.capod.monitor.core.MonitorModeResolver
+import eu.darken.capod.monitor.core.PodDevice
+import eu.darken.capod.monitor.core.battery.BatteryDrainStore
+import eu.darken.capod.monitor.core.battery.BatteryEstimator
+import eu.darken.capod.monitor.core.battery.BatteryHealth
+import eu.darken.capod.monitor.core.battery.DrainProfile
+import eu.darken.capod.monitor.core.resolvedAncCycleMask
+import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
+import eu.darken.capod.pods.core.apple.aap.protocol.AapCommand
+import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
+import eu.darken.capod.profiles.core.AppleDeviceProfile
+import eu.darken.capod.profiles.core.DeviceProfilesRepo
+import eu.darken.capod.profiles.core.ProfileId
+import eu.darken.capod.profiles.core.ReactionConfig
+import eu.darken.capod.profiles.core.SelectedDeviceTarget
+import eu.darken.capod.reaction.core.autoconnect.AutoConnectCondition
+import eu.darken.capod.reaction.core.charged.ChargedSlotScope
+import eu.darken.capod.reaction.core.conversation.ConversationAction
+import eu.darken.capod.reaction.core.conversation.ConversationVolumeMode
+import eu.darken.capod.reaction.core.stem.StemAction
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.isActive
+import java.time.Instant
+import javax.inject.Inject
+
+@HiltViewModel
+class DeviceSettingsViewModel @Inject constructor(
+    dispatcherProvider: DispatcherProvider,
+    private val deviceMonitor: DeviceMonitor,
+    private val aapManager: AapConnectionManager,
+    private val upgradeRepo: UpgradeRepo,
+    private val bluetoothManager: BluetoothManager2,
+    private val profilesRepo: DeviceProfilesRepo,
+    private val batteryEstimator: BatteryEstimator,
+    private val drainStore: BatteryDrainStore,
+    private val monitorModeResolver: MonitorModeResolver,
+    private val nudgeCapabilityStore: NudgeCapabilityStore,
+    private val timeSource: TimeSource,
+    private val webpageTool: WebpageTool,
+) : ViewModel4(dispatcherProvider) {
+
+    private val targetProfileId = MutableStateFlow<ProfileId?>(null)
+    private var targetProfileGeneration = 0L
+    private var initialized = false
+
+    fun initialize(profileId: ProfileId) {
+        if (initialized && targetProfileId.value == profileId) return
+        initialized = true
+        targetProfileGeneration++
+        targetProfileId.value = profileId
+    }
+
+    private val updateTicker = channelFlow<Unit> {
+        while (isActive) {
+            trySend(Unit)
+            delay(3000)
+        }
+    }
+
+    private val isForceConnecting = MutableStateFlow(false)
+
+    sealed interface Event {
+        data object OpenBluetoothSettings : Event
+        data class SendFailed(val command: AapCommand, val message: String?) : Event
+        data object SystemRenameUnavailable : Event
+        data object OffModeRejectedByDevice : Event
+        data object AncModeNotConfirmedByDevice : Event
+        data object DynamicEndOfChargeRejectedByDevice : Event
+        data object CustomEqNotConfirmedByDevice : Event
+    }
+
+    val events = SingleEventFlow<Event>()
+
+    init {
+        launch {
+            aapManager.offRejectedEvents.collect { address ->
+                if (address == currentAddress()) {
+                    events.tryEmit(Event.OffModeRejectedByDevice)
+                }
+            }
+        }
+        launch {
+            aapManager.settingRejectedEvents.collect { (address, command) ->
+                if (address != currentAddress()) return@collect
+                when (command) {
+                    is AapCommand.SetDynamicEndOfCharge ->
+                        events.tryEmit(Event.DynamicEndOfChargeRejectedByDevice)
+                    is AapCommand.SetCustomEq ->
+                        events.tryEmit(Event.CustomEqNotConfirmedByDevice)
+                    // OFF has its own, more specific message via offRejectedEvents.
+                    is AapCommand.SetAncMode -> if (command.mode != AapSetting.AncMode.Value.OFF) {
+                        events.tryEmit(Event.AncModeNotConfirmedByDevice)
+                    }
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    val state = targetProfileId.flatMapLatest { profileId ->
+        if (profileId == null) return@flatMapLatest flowOf(State(device = null))
+        combine(
+            updateTicker,
+            deviceForProfile(profileId),
+            upgradeRepo.upgradeInfo,
+            isForceConnecting,
+            // The Bluetooth HEADSET profile lookup can be slow to produce its first value.
+            // Seed this branch so the screen can render immediately after navigation.
+            bluetoothManager.connectedDevices.onStart { emit(emptyList()) },
+            monitorModeResolver.effectiveMode,
+            profilesRepo.profiles,
+            nudgeCapabilityStore.availability,
+            drainStore.profiles,
+        ) { args ->
+            val device = args[1] as PodDevice?
+            val upgrade = args[2] as UpgradeRepo.Info
+            val forcing = args[3] as Boolean
+
+            @Suppress("UNCHECKED_CAST")
+            val connectedDevices = args[4] as Collection<eu.darken.capod.common.bluetooth.BluetoothDevice2>
+            val monitorMode = args[5] as MonitorMode
+
+            @Suppress("UNCHECKED_CAST")
+            val profiles = args[6] as List<eu.darken.capod.profiles.core.DeviceProfile>
+            val nudgeAvailability = args[7] as NudgeAvailability
+
+            @Suppress("UNCHECKED_CAST")
+            val drainProfiles = args[8] as Map<ProfileId, DrainProfile>
+            val appleProfile = profiles.filterIsInstance<AppleDeviceProfile>()
+                .firstOrNull { it.id == profileId }
+            val stemActions = appleProfile?.stemActions
+            val connectedAddresses = connectedDevices.map { it.address }.toSet()
+            val selectedAddress = appleProfile?.address
+            val systemBtName = selectedAddress?.let { addr ->
+                try {
+                    bluetoothManager.bondedDevices().first().firstOrNull { it.address == addr }?.name
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            val now = timeSource.now()
+            // The runtime figure rides on the same learned data as the estimate — the per-device
+            // toggle governs both.
+            val batteryHealth = device
+                ?.takeIf { appleProfile?.batteryEstimateEnabled ?: true }
+                ?.let { BatteryHealth.estimate(drainProfiles[profileId], it.model, now) }
+            State(
+                device = device,
+                profileModel = appleProfile?.model,
+                profileLabel = appleProfile?.label,
+                now = now,
+                isPro = upgrade.isPro,
+                // HFP denial does not determine whether this OEM accepts a direct A2DP request.
+                isNudgeAvailable = true,
+                isForceConnecting = forcing,
+                isClassicallyConnected = selectedAddress?.let { it in connectedAddresses } == true,
+                monitorMode = monitorMode,
+                systemBluetoothName = systemBtName,
+                hasCustomLongPressStemAction = stemActions?.let {
+                    (it.leftLong !is StemAction.None && it.leftLong !is StemAction.CycleAnc) ||
+                        (it.rightLong !is StemAction.None && it.rightLong !is StemAction.CycleAnc)
+                } == true,
+                batteryEstimateEnabled = appleProfile?.batteryEstimateEnabled ?: true,
+                batteryHealth = batteryHealth,
+                batteryRuntimeWarning = batteryHealth?.lowestPromotable
+                    ?.takeIf { it.reading.percent <= BatteryHealth.LOW_RUNTIME_PERCENT },
+                // A model with a rating WILL eventually produce a runtime figure — surface the
+                // feature as "still determining" until the listening sessions accumulate. Without
+                // a paired device the listening gate can never open, so no promise is made.
+                batteryHealthPending = device != null &&
+                    (appleProfile?.batteryEstimateEnabled ?: true) &&
+                    device.model.batterySpec != null &&
+                    device.hasSelectedPairedDevice,
+            )
+        }
+    }.asLiveState()
+
+    /**
+     * Returns the [PodDevice] for [profileId] reactively. Falls back to a synthesized bare
+     * device when the profile exists but isn't currently visible (no BLE / cache / AAP),
+     * so the Reactions section can still be edited for pristine profiles.
+     */
+    private fun deviceForProfile(profileId: ProfileId): kotlinx.coroutines.flow.Flow<PodDevice?> =
+        deviceMonitor.devices.flatMapLatest { devices ->
+            val live = devices.firstOrNull { it.profileId == profileId }
+            flow<PodDevice?> { emit(live ?: deviceMonitor.getDeviceForProfile(profileId)) }
+        }
+
+    data class State(
+        val device: PodDevice?,
+        val now: Instant = SystemTimeSource.now(),
+        val isPro: Boolean = false,
+        val isNudgeAvailable: Boolean = true,
+        val isForceConnecting: Boolean = false,
+        val isClassicallyConnected: Boolean = false,
+        val monitorMode: MonitorMode = MonitorMode.AUTOMATIC,
+        val systemBluetoothName: String? = null,
+        val hasCustomLongPressStemAction: Boolean = false,
+        val batteryEstimateEnabled: Boolean = true,
+        /** Derived per-pod share of the rated listening time (1..100 each), or null when there
+         * isn't enough learned data. */
+        val batteryHealth: BatteryHealth.PerPod? = null,
+        /** The worst pod whose runtime has dropped to [BatteryHealth.LOW_RUNTIME_PERCENT] or below
+         * on enough recent evidence to warn about — drives the warning banner. */
+        val batteryRuntimeWarning: BatteryHealth.SlotReading? = null,
+        /** True when a runtime figure CAN be derived for this device (rated model, feature on) —
+         * shows the "still determining" placeholder while [batteryHealth] is null. */
+        val batteryHealthPending: Boolean = false,
+        val profileModel: eu.darken.capod.pods.core.apple.PodModel? = null,
+        val profileLabel: String? = null,
+    ) {
+        val reactions: ReactionConfig get() = device?.reactions ?: ReactionConfig()
+    }
+
+    private suspend fun currentTarget(): SelectedDeviceTarget? {
+        val profileId = targetProfileId.value ?: return null
+        val generation = targetProfileGeneration
+        val selected = profilesRepo.selectedTarget(profileId)
+        return selected.takeIf { targetProfileId.value == profileId && targetProfileGeneration == generation }
+    }
+
+    private suspend fun currentAddress(): String? = currentTarget()?.address
+
+    private suspend fun isCurrentTarget(profileId: ProfileId, generation: Long, selected: SelectedDeviceTarget): Boolean =
+        targetProfileId.value == profileId && targetProfileGeneration == generation &&
+            profilesRepo.selectedTarget(profileId) == selected &&
+            targetProfileId.value == profileId && targetProfileGeneration == generation
+
+    fun forceConnect() = launch {
+        if (!isForceConnecting.compareAndSet(expect = false, update = true)) {
+            log(TAG) { "forceConnect already in progress" }
+            return@launch
+        }
+        try {
+            val profileId = targetProfileId.value ?: run {
+                events.tryEmit(Event.OpenBluetoothSettings)
+                return@launch
+            }
+            val generation = targetProfileGeneration
+            val selected = currentTarget()
+            val address = selected?.address ?: run {
+                events.tryEmit(Event.OpenBluetoothSettings)
+                return@launch
+            }
+            val bonded = try {
+                bluetoothManager.bondedDevices().first().firstOrNull { it.address == address }
+            } catch (e: Exception) {
+                log(TAG, WARN) { "bondedDevices() failed: ${e.message}" }
+                null
+            }
+            if (!isCurrentTarget(profileId, generation, selected)) return@launch
+            if (bonded == null) {
+                log(TAG, WARN) { "No bonded device for $address — opening Bluetooth settings" }
+                events.tryEmit(Event.OpenBluetoothSettings)
+                return@launch
+            }
+            // Re-read the coherent selection after each asynchronous platform proxy acquisition.
+            val canConnect: suspend () -> Boolean = { isCurrentTarget(profileId, generation, selected) }
+            val audioAccepted = bluetoothManager.requestAudioConnection(bonded, canConnect)
+            if (!canConnect()) return@launch
+            val result = try {
+                if (nudgeCapabilityStore.availability.value != NudgeAvailability.BROKEN)
+                    bluetoothManager.nudgeConnection(bonded, canConnect)
+                else NudgeAttemptResult.Rejected
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log(TAG, WARN) { "nudgeConnection threw: ${e.message}" }
+                NudgeAttemptResult.Rejected
+            }
+            if (!canConnect()) return@launch
+            log(TAG, INFO) { "nudgeConnection($bonded) result=$result" }
+            nudgeCapabilityStore.record(result)
+            if (!audioAccepted && result != NudgeAttemptResult.Accepted) {
+                events.tryEmit(Event.OpenBluetoothSettings)
+            }
+        } finally {
+            isForceConnecting.value = false
+        }
+    }
+
+    private suspend fun sendInternal(command: AapCommand): Boolean {
+        val address = currentAddress() ?: return false
+        return try {
+            aapManager.sendCommand(address, command)
+            log(TAG, INFO) { "Sent $command to $address" }
+            true
+        } catch (e: Exception) {
+            log(TAG, WARN) { "Failed to send $command: ${e.message}" }
+            events.emit(Event.SendFailed(command, e.message))
+            false
+        }
+    }
+
+    private fun send(command: AapCommand) {
+        launch { sendInternal(command) }
+    }
+
+    private fun sendProGated(command: AapCommand) = launch {
+        if (upgradeRepo.isProForUi()) {
+            sendInternal(command)
+        } else {
+            navTo(Nav.Main.Upgrade())
+        }
+    }
+
+    fun setAncMode(mode: AapSetting.AncMode.Value) = send(AapCommand.SetAncMode(mode))
+
+    fun setCustomEq(value: AapSetting.CustomEq) = send(AapCommand.SetCustomEq(value))
+
+    fun setConversationalAwareness(enabled: Boolean) = send(AapCommand.SetConversationalAwareness(enabled))
+
+    fun setNcWithOneAirPod(enabled: Boolean) = send(AapCommand.SetNcWithOneAirPod(enabled))
+
+    fun setPersonalizedVolume(enabled: Boolean) = send(AapCommand.SetPersonalizedVolume(enabled))
+
+    fun setToneVolume(level: Int) = sendProGated(AapCommand.SetToneVolume(level))
+
+    fun setAdaptiveAudioNoise(level: Int) = send(AapCommand.SetAdaptiveAudioNoise(level))
+
+    fun setVolumeSwipe(enabled: Boolean) = send(AapCommand.SetVolumeSwipe(enabled))
+
+    fun setVolumeSwipeLength(value: AapSetting.VolumeSwipeLength.Value) = send(AapCommand.SetVolumeSwipeLength(value))
+
+    fun setMicrophoneMode(mode: AapSetting.MicrophoneMode.Mode) = sendProGated(AapCommand.SetMicrophoneMode(mode))
+
+    fun setEarDetectionEnabled(enabled: Boolean) = send(AapCommand.SetEarDetectionEnabled(enabled))
+
+    fun setListeningModeCycle(modeMask: Int) = sendProGated(AapCommand.SetListeningModeCycle(modeMask))
+
+    fun setAllowOffOption(enabled: Boolean) = launch {
+        if (!upgradeRepo.isProForUi()) {
+            navTo(Nav.Main.Upgrade())
+            return@launch
+        }
+        if (enabled) {
+            sendInternal(AapCommand.SetAllowOffOption(enabled = true))
+        } else {
+            val profileId = targetProfileId.value
+            val currentMask = profileId
+                ?.let { deviceMonitor.getDeviceForProfile(it) }
+                ?.resolvedAncCycleMask
+                ?: DEFAULT_CYCLE_MASK_WITH_OFF
+            // Always send the cycle-mask update first — local state can diverge from the
+            // device's actual mask since 0x1A is never echoed. Stripping OFF unconditionally
+            // keeps the stem cycle consistent with the disabled capability.
+            val newMask = currentMask and OFF_BIT.inv()
+            sendInternal(AapCommand.SetListeningModeCycle(newMask))
+            sendInternal(AapCommand.SetAllowOffOption(enabled = false))
+        }
+    }
+
+    fun setSleepDetection(enabled: Boolean) = launch {
+        log(TAG, INFO) { "setSleepDetection($enabled)" }
+        if (enabled && !upgradeRepo.isProForUi()) {
+            navTo(Nav.Main.Upgrade())
+            return@launch
+        }
+        sendInternal(AapCommand.SetSleepDetection(enabled))
+    }
+
+    fun setDynamicEndOfCharge(enabled: Boolean) = send(AapCommand.SetDynamicEndOfCharge(enabled))
+
+    fun setDeviceName(name: String) = launch {
+        val profileId = targetProfileId.value ?: return@launch
+        val generation = targetProfileGeneration
+        val selected = currentTarget() ?: return@launch
+        val address = selected.address ?: return@launch
+        try {
+            aapManager.sendCommand(address, AapCommand.SetDeviceName(name))
+            log(TAG, INFO) { "Sent SetDeviceName to $address" }
+        } catch (e: Exception) {
+            log(TAG, WARN) { "Failed to send SetDeviceName: ${e.message}" }
+            events.emit(Event.SendFailed(AapCommand.SetDeviceName(name), e.message))
+        }
+
+        val bonded = try {
+            bluetoothManager.bondedDevices().first().firstOrNull { it.address == address }
+        } catch (e: Exception) {
+            log(TAG, WARN) { "bondedDevices() failed while renaming: ${e.message}" }
+            null
+        }
+        if (!isCurrentTarget(profileId, generation, selected)) return@launch
+        val aliasOk = bonded?.let { bluetoothManager.setDeviceAlias(it, name) } ?: false
+        if (!aliasOk) {
+            log(
+                TAG,
+                WARN
+            ) { "System bond alias rename failed for $address — user must rename in system settings or re-pair" }
+            events.emit(Event.SystemRenameUnavailable)
+        }
+    }
+
+    // ── Reaction toggles (per-profile) ───────────────────────────────────────
+
+    private suspend fun updateProfileNow(transform: (AppleDeviceProfile) -> AppleDeviceProfile) {
+        val profileId = targetProfileId.value ?: return
+        try {
+            profilesRepo.updateAppleProfile(profileId, transform)
+        } catch (e: Exception) {
+            log(TAG, WARN) { "Failed to update profile $profileId: ${e.message}" }
+            errorEvents.emit(e)
+        }
+    }
+
+    private fun proGatedReaction(
+        enabled: Boolean,
+        transform: (AppleDeviceProfile) -> AppleDeviceProfile,
+    ) = launch {
+        // Disabling never requires pro; enabling does.
+        if (enabled && !upgradeRepo.isProForUi()) {
+            navTo(Nav.Main.Upgrade())
+            return@launch
+        }
+        updateProfileNow(transform)
+    }
+
+    fun setOnePodMode(enabled: Boolean) {
+        log(TAG, INFO) { "setOnePodMode($enabled)" }
+        launch {
+            updateProfileNow { it.copy(onePodMode = enabled) }
+        }
+    }
+
+    fun setAutoPlay(enabled: Boolean) = launch {
+        log(TAG, INFO) { "setAutoPlay($enabled)" }
+        if (enabled && !upgradeRepo.isProForUi()) {
+            navTo(Nav.Main.Upgrade())
+            return@launch
+        }
+        updateProfileNow { it.copy(autoPlay = enabled) }
+        syncEarDetection(autoPlay = enabled)
+    }
+
+    fun setAutoPause(enabled: Boolean) = launch {
+        log(TAG, INFO) { "setAutoPause($enabled)" }
+        if (enabled && !upgradeRepo.isProForUi()) {
+            navTo(Nav.Main.Upgrade())
+            return@launch
+        }
+        updateProfileNow { it.copy(autoPause = enabled) }
+        syncEarDetection(autoPause = enabled)
+    }
+
+    fun setStartMusicOnWear(enabled: Boolean) = launch {
+        log(TAG, INFO) { "setStartMusicOnWear($enabled)" }
+        if (enabled && !upgradeRepo.isProForUi()) {
+            navTo(Nav.Main.Upgrade())
+            return@launch
+        }
+        updateProfileNow { it.copy(startMusicOnWear = enabled) }
+    }
+
+    /**
+     * Keeps the device-side Automatic Ear Detection setting in sync with the
+     * auto-play / auto-pause reaction toggles.  When either reaction is active
+     * the device must report ear-in / ear-out events; when both are off the
+     * setting is disabled to match the user's intent.
+     *
+     * Only sends when the model supports the setting and AAP is ready —
+     * silent no-op otherwise (reactions are per-profile and work offline).
+     */
+    private suspend fun syncEarDetection(autoPlay: Boolean? = null, autoPause: Boolean? = null) {
+        val profileId = targetProfileId.value ?: return
+        val device = deviceMonitor.getDeviceForProfile(profileId) ?: return
+        if (device.model?.features?.hasEarDetectionToggle != true) return
+        if (!device.isAapReady) return
+        val reactions = device.reactions
+        val effectiveAutoPlay = autoPlay ?: reactions.autoPlay
+        val effectiveAutoPause = autoPause ?: reactions.autoPause
+        sendInternal(AapCommand.SetEarDetectionEnabled(effectiveAutoPlay || effectiveAutoPause))
+    }
+
+    fun setAutoConnect(enabled: Boolean) = launch {
+        log(TAG, INFO) { "setAutoConnect($enabled)" }
+        updateProfileNow { it.copy(autoConnect = enabled) }
+    }
+
+    fun setAutoConnectCondition(condition: AutoConnectCondition) = launch {
+        log(TAG, INFO) { "setAutoConnectCondition($condition)" }
+        updateProfileNow { it.copy(autoConnectCondition = condition) }
+    }
+
+    fun setShowPopUpOnCaseOpen(enabled: Boolean) {
+        log(TAG, INFO) { "setShowPopUpOnCaseOpen($enabled)" }
+        proGatedReaction(enabled) { it.copy(showPopUpOnCaseOpen = enabled) }
+    }
+
+    fun setShowPopUpOnConnection(enabled: Boolean) {
+        log(TAG, INFO) { "setShowPopUpOnConnection($enabled)" }
+        proGatedReaction(enabled) { it.copy(showPopUpOnConnection = enabled) }
+    }
+
+    fun setNotifyWhenCharged(enabled: Boolean) {
+        log(TAG, INFO) { "setNotifyWhenCharged($enabled)" }
+        proGatedReaction(enabled) { it.copy(notifyWhenCharged = enabled) }
+    }
+
+    fun setChargedSlotScope(scope: ChargedSlotScope) = launch {
+        log(TAG, INFO) { "setChargedSlotScope($scope)" }
+        updateProfileNow { it.copy(chargedSlotScope = scope) }
+    }
+
+    fun setChargedThreshold(percent: Int) = launch {
+        log(TAG, INFO) { "setChargedThreshold($percent)" }
+        val snapped = (percent.toFloat() / ReactionConfig.CHARGED_THRESHOLD_STEP)
+            .let { Math.round(it) * ReactionConfig.CHARGED_THRESHOLD_STEP }
+            .coerceIn(ReactionConfig.MIN_CHARGED_THRESHOLD, ReactionConfig.MAX_CHARGED_THRESHOLD)
+        updateProfileNow { it.copy(chargedThreshold = snapped) }
+    }
+
+    fun setNotifyWhenCaseLow(enabled: Boolean) {
+        log(TAG, INFO) { "setNotifyWhenCaseLow($enabled)" }
+        proGatedReaction(enabled) { it.copy(notifyWhenCaseLow = enabled) }
+    }
+
+    fun setCaseLowThreshold(percent: Int) = launch {
+        log(TAG, INFO) { "setCaseLowThreshold($percent)" }
+        val snapped = (percent.toFloat() / ReactionConfig.CASE_LOW_THRESHOLD_STEP)
+            .let { Math.round(it) * ReactionConfig.CASE_LOW_THRESHOLD_STEP }
+            .coerceIn(ReactionConfig.MIN_CASE_LOW_THRESHOLD, ReactionConfig.MAX_CASE_LOW_THRESHOLD)
+        updateProfileNow { it.copy(caseLowThreshold = snapped) }
+    }
+
+    fun setConversationAction(action: ConversationAction) = launch {
+        log(TAG, INFO) { "setConversationAction($action)" }
+        // The action picker is only shown while Conversation Awareness is already enabled (the pod
+        // emits no speaking frames otherwise), so no need to auto-enable it here.
+        if (action != ConversationAction.NOTHING && !upgradeRepo.isProForUi()) {
+            navTo(Nav.Main.Upgrade())
+            return@launch
+        }
+        updateProfileNow { it.copy(conversationAction = action) }
+    }
+
+    fun setConversationVolumeReduction(percent: Int) = launch {
+        log(TAG, INFO) { "setConversationVolumeReduction($percent)" }
+        updateProfileNow { it.copy(conversationVolumeReduction = percent) }
+    }
+
+    fun setConversationVolumeMode(mode: ConversationVolumeMode) = launch {
+        log(TAG, INFO) { "setConversationVolumeMode($mode)" }
+        updateProfileNow { it.copy(conversationVolumeMode = mode) }
+    }
+
+    fun setConversationVolumeTarget(percent: Int) = launch {
+        log(TAG, INFO) { "setConversationVolumeTarget($percent)" }
+        updateProfileNow {
+            it.copy(conversationVolumeTarget = percent.coerceIn(
+                ReactionConfig.MIN_CONVERSATION_VOLUME_TARGET,
+                ReactionConfig.MAX_CONVERSATION_VOLUME_TARGET,
+            ))
+        }
+    }
+
+    // ── Battery estimate (per-profile) ───────────────────────────────────────
+
+    fun setBatteryEstimateEnabled(enabled: Boolean) = launch {
+        log(TAG, INFO) { "setBatteryEstimateEnabled($enabled)" }
+        updateProfileNow { it.copy(batteryEstimateEnabled = enabled) }
+    }
+
+    fun resetBatteryEstimate() = launch {
+        val profileId = targetProfileId.value ?: return@launch
+        log(TAG, INFO) { "resetBatteryEstimate($profileId)" }
+        batteryEstimator.reset(profileId)
+    }
+
+
+    fun navToPressControls() = launch {
+        log(TAG, INFO) { "navToPressControls()" }
+        val profileId = targetProfileId.value ?: return@launch
+        val device = deviceMonitor.getDeviceForProfile(profileId)
+        if (device?.isAapReady != true) {
+            log(TAG, INFO) { "navToPressControls(): aborted, device not AAP-ready" }
+            return@launch
+        }
+        navTo(Nav.Main.PressControls(profileId = profileId))
+    }
+
+    fun navToEditProfile() = launch {
+        log(TAG, INFO) { "navToEditProfile()" }
+        val profileId = targetProfileId.value ?: return@launch
+        navTo(Nav.Main.DeviceProfileCreation(profileId = profileId))
+    }
+
+    fun launchUpgrade() {
+        log(TAG, INFO) { "launchUpgrade()" }
+        navTo(Nav.Main.Upgrade())
+    }
+
+    fun openIssueTracker() {
+        webpageTool.open("https://github.com/Stormlyd/PodBridge/issues")
+    }
+
+    fun openAapCompatibilityTracker() {
+        webpageTool.open("https://github.com/d4rken-org/capod/issues/538")
+    }
+
+    companion object {
+        private val TAG = logTag("DeviceSettings", "VM")
+        private const val OFF_BIT = 0x01
+
+        // Apple's factory-default listening-mode cycle mask: ON | TRANSPARENCY | ADAPTIVE.
+        // Used as a conservative fallback when disabling Allow Off and we don't have a
+        // live/persisted mask to mutate.
+        private const val DEFAULT_CYCLE_MASK_WITH_OFF = 0x0F
+    }
+}

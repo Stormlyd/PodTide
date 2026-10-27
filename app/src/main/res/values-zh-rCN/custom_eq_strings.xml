@@ -1,0 +1,18 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="custom_eq_title">三频段均衡器 · 实验功能</string>
+    <string name="custom_eq_description">仅供 AirPods Pro 3 试用。调整草稿后点“应用”发送；设备回报前不视为生效。</string>
+    <string name="custom_eq_recommended">推荐</string>
+    <string name="custom_eq_custom">自定义</string>
+    <string name="custom_eq_low">低频</string>
+    <string name="custom_eq_mid">中频</string>
+    <string name="custom_eq_high">高频</string>
+    <string name="custom_eq_reset">重置为 50</string>
+    <string name="custom_eq_apply">应用</string>
+    <string name="custom_eq_queued">耳机未入耳，设置将在入耳后发送。</string>
+    <string name="custom_eq_pending">设置已提交，等待设备确认。</string>
+    <string name="custom_eq_no_report">尚未收到设备的均衡器设置。</string>
+    <string name="custom_eq_device_recommended">设备当前报告：推荐</string>
+    <string name="custom_eq_device_custom">设备当前报告：自定义 · %1$d / %2$d / %3$d</string>
+    <string name="custom_eq_not_confirmed">均衡器设置未得到设备确认，请重试。</string>
+</resources>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="custom_eq_title">Three-band equalizer · Experimental</string>
+    <string name="custom_eq_description">For testing with AirPods Pro 3. Edit the draft, then tap Apply. Wait for a matching device report to confirm changes.</string>
+    <string name="custom_eq_recommended">Recommended</string>
+    <string name="custom_eq_custom">Custom</string>
+    <string name="custom_eq_low">Low</string>
+    <string name="custom_eq_mid">Mid</string>
+    <string name="custom_eq_high">High</string>
+    <string name="custom_eq_reset">Reset to 50</string>
+    <string name="custom_eq_apply">Apply</string>
+    <string name="custom_eq_queued">Settings will be sent when the earbuds are in your ears.</string>
+    <string name="custom_eq_pending">Request submitted. Waiting for device confirmation.</string>
+    <string name="custom_eq_no_report">No equalizer settings have been received from the device.</string>
+    <string name="custom_eq_device_recommended">Device reports: Recommended</string>
+    <string name="custom_eq_device_custom">Device reports: Custom · %1$d / %2$d / %3$d</string>
+    <string name="custom_eq_not_confirmed">The device did not confirm the equalizer setting. Please retry.</string>
+</resources>

@@ -1,0 +1,18 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="head_gestures_title">头部手势</string>
+    <string name="head_gestures_description">戴好耳机后使用点头和摇头操作。首次使用请保持头部稳定。</string>
+    <string name="head_gestures_calls">来电接听与拒接</string>
+    <string name="head_gestures_calls_description">点头接听，摇头拒接。需要电话状态和接听电话权限。</string>
+    <string name="head_gestures_media">自定义音乐控制</string>
+    <string name="head_gestures_media_description">在没有通话时持续识别手势，可能增加耳机耗电。</string>
+    <string name="head_gestures_nod">点头操作</string>
+    <string name="head_gestures_shake">摇头操作</string>
+    <string name="head_gestures_sensitivity">动作阈值（数值越小越灵敏）</string>
+    <string name="head_action_none">不执行</string>
+    <string name="head_action_play_pause">播放／暂停</string>
+    <string name="head_action_next">下一首</string>
+    <string name="head_action_previous">上一首</string>
+    <string name="head_action_volume_up">调高音量</string>
+    <string name="head_action_volume_down">调低音量</string>
+</resources>

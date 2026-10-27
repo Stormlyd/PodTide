@@ -1,0 +1,17 @@
+<resources>
+    <string name="head_gestures_title">Head gestures</string>
+    <string name="head_gestures_description">Use nods and shakes while wearing your earbuds. Hold your head still at first.</string>
+    <string name="head_gestures_calls">Answer or decline calls</string>
+    <string name="head_gestures_calls_description">Nod to answer and shake to decline. Phone state and answer-call permissions are required.</string>
+    <string name="head_gestures_media">Custom music controls</string>
+    <string name="head_gestures_media_description">Recognizes gestures while no call is active. This may increase earbud battery use.</string>
+    <string name="head_gestures_nod">Nod action</string>
+    <string name="head_gestures_shake">Shake action</string>
+    <string name="head_gestures_sensitivity">Motion threshold (lower is more sensitive)</string>
+    <string name="head_action_none">Do nothing</string>
+    <string name="head_action_play_pause">Play / pause</string>
+    <string name="head_action_next">Next track</string>
+    <string name="head_action_previous">Previous track</string>
+    <string name="head_action_volume_up">Volume up</string>
+    <string name="head_action_volume_down">Volume down</string>
+</resources>

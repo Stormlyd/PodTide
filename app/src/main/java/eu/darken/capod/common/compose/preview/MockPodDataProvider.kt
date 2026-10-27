@@ -1,0 +1,640 @@
+package eu.darken.capod.common.compose.preview
+
+import android.content.Context
+import eu.darken.capod.R
+import eu.darken.capod.common.bluetooth.BleScanResult
+import eu.darken.capod.common.upgrade.UpgradeRepo
+import eu.darken.capod.monitor.core.PodDevice
+import eu.darken.capod.monitor.core.cache.CachedDeviceState
+import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.aap.AapPodState
+import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
+import eu.darken.capod.pods.core.apple.ble.BlePodSnapshot
+import eu.darken.capod.pods.core.apple.ble.DualBlePodSnapshot
+import eu.darken.capod.pods.core.apple.ble.SingleBlePodSnapshot
+import eu.darken.capod.pods.core.apple.ble.devices.ApplePods
+import eu.darken.capod.pods.core.apple.ble.devices.HasCase
+import eu.darken.capod.pods.core.apple.ble.devices.HasChargeDetection
+import eu.darken.capod.pods.core.apple.ble.devices.HasChargeDetectionDual
+import eu.darken.capod.pods.core.apple.ble.devices.HasDualMicrophone
+import eu.darken.capod.pods.core.apple.ble.devices.HasEarDetection
+import eu.darken.capod.pods.core.apple.ble.devices.HasEarDetectionDual
+import eu.darken.capod.pods.core.apple.ble.protocol.ProximityPayload
+import eu.darken.capod.pods.core.unknown.UnknownSnapshotBle
+import eu.darken.capod.profiles.core.AppleDeviceProfile
+import eu.darken.capod.profiles.core.DeviceProfile
+import eu.darken.capod.profiles.core.ReactionConfig
+import java.time.Instant
+
+/** Fixed timestamp for deterministic preview/screenshot rendering. */
+val MOCK_NOW: Instant = Instant.parse("2025-06-15T10:30:00Z")
+
+object MockPodDataProvider {
+
+    fun dummyScanResult(rssi: Int = -50): BleScanResult = BleScanResult(
+        receivedAt = MOCK_NOW,
+        address = "AA:BB:CC:DD:EE:FF",
+        rssi = rssi,
+        generatedAtNanos = 0L,
+        manufacturerSpecificData = mapOf(
+            76 to byteArrayOf(0x07, 0x19, 0x01, 0x02, 0x20, 0x75, 0xAA.toByte(), 0x30, 0x01, 0x00, 0x00, 0x2D)
+        ),
+    )
+
+    // --- Dual pod scenarios ---
+
+    fun airPodsProFullCharge(): DualBlePodSnapshot = MockDualBlePodSnapshot(
+        _model = PodModel.AIRPODS_PRO2,
+        _label = "Work AirPods",
+        batteryLeftPodPercent = 1.0f,
+        batteryRightPodPercent = 1.0f,
+        _batteryCasePercent = 1.0f,
+        leftPodIcon = R.drawable.device_airpods_pro2_left,
+        rightPodIcon = R.drawable.device_airpods_pro2_right,
+        _caseIcon = R.drawable.device_airpods_pro2_case,
+        _address = "AA:BB:CC:DD:EE:FF",
+    )
+
+    fun airPodsProMixed(): DualBlePodSnapshot = MockDualBlePodSnapshot(
+        _model = PodModel.AIRPODS_PRO2,
+        _label = "My AirPods Pro",
+        batteryLeftPodPercent = 0.80f,
+        batteryRightPodPercent = 0.45f,
+        _batteryCasePercent = 0.60f,
+        _isLeftPodCharging = true,
+        leftPodIcon = R.drawable.device_airpods_pro2_left,
+        rightPodIcon = R.drawable.device_airpods_pro2_right,
+        _caseIcon = R.drawable.device_airpods_pro2_case,
+        _address = "AA:BB:CC:DD:EE:FF",
+    )
+
+    fun airPodsProLowBattery(): DualBlePodSnapshot = MockDualBlePodSnapshot(
+        _model = PodModel.AIRPODS_PRO2,
+        _label = "My AirPods Pro",
+        batteryLeftPodPercent = 0.10f,
+        batteryRightPodPercent = 0.05f,
+        _batteryCasePercent = null,
+        _isLeftPodInEar = true,
+        _isRightPodInEar = true,
+        leftPodIcon = R.drawable.device_airpods_pro2_left,
+        rightPodIcon = R.drawable.device_airpods_pro2_right,
+        _caseIcon = R.drawable.device_airpods_pro2_case,
+    )
+
+    fun airPodsProInCase(): DualBlePodSnapshot = MockDualBlePodSnapshot(
+        _model = PodModel.AIRPODS_PRO2,
+        _label = "My AirPods Pro",
+        batteryLeftPodPercent = null,
+        batteryRightPodPercent = null,
+        _batteryCasePercent = 0.90f,
+        leftPodIcon = R.drawable.device_airpods_pro2_left,
+        rightPodIcon = R.drawable.device_airpods_pro2_right,
+        _caseIcon = R.drawable.device_airpods_pro2_case,
+    )
+
+    fun airPodsGen1Wearing(): DualBlePodSnapshot = MockDualBlePodSnapshot(
+        _model = PodModel.AIRPODS_GEN1,
+        _label = "Old AirPods",
+        batteryLeftPodPercent = 0.70f,
+        batteryRightPodPercent = 0.65f,
+        _batteryCasePercent = 0.50f,
+        _isLeftPodInEar = true,
+        _isRightPodInEar = true,
+        _isLeftPodMicrophone = true,
+        leftPodIcon = R.drawable.device_airpods_gen1_left,
+        rightPodIcon = R.drawable.device_airpods_gen1_right,
+        _caseIcon = R.drawable.device_airpods_gen1_case,
+    )
+
+    fun powerBeatsPro(): DualBlePodSnapshot = MockDualBlePodSnapshotNoCase(
+        _model = PodModel.POWERBEATS_PRO,
+        _label = "PowerBeats Pro",
+        batteryLeftPodPercent = 0.55f,
+        batteryRightPodPercent = 0.60f,
+        leftPodIcon = R.drawable.device_powerbeats_pro_left,
+        rightPodIcon = R.drawable.device_powerbeats_pro_right,
+    )
+
+    // --- Single pod scenarios ---
+
+    fun airPodsMax(): SingleBlePodSnapshot = MockSingleBlePodSnapshot(
+        _model = PodModel.AIRPODS_MAX,
+        _label = "AirPods Max",
+        batteryHeadsetPercent = 0.85f,
+        _isBeingWorn = true,
+        _address = "AA:BB:CC:DD:EE:FF",
+    )
+
+    fun airPodsMaxCharging(): SingleBlePodSnapshot = MockSingleAppleBlePodSnapshot(
+        _model = PodModel.AIRPODS_MAX,
+        _label = "AirPods Max",
+        batteryHeadsetPercent = 0.40f,
+        _isHeadsetBeingCharged = true,
+        _isIRKMatch = true,
+        _hasPrivatePayload = true,
+        _address = "11:22:33:44:55:66",
+    )
+
+    fun beatsSolo3(): SingleBlePodSnapshot = MockSingleBlePodSnapshot(
+        _model = PodModel.BEATS_SOLO_3,
+        _label = "Beats Solo 3",
+        batteryHeadsetPercent = 0.70f,
+    )
+
+    // --- Unknown device ---
+
+    fun unknownDevice(): BlePodSnapshot = UnknownSnapshotBle(
+        scanResult = dummyScanResult(rssi = -70),
+    )
+
+    // --- Profile helpers ---
+
+    fun profile(
+        label: String,
+        model: PodModel,
+        address: String? = "AA:BB:CC:DD:EE:FF",
+    ): AppleDeviceProfile = AppleDeviceProfile(
+        label = label,
+        model = model,
+        address = address,
+    )
+
+    // --- Dual pod with Apple keys ---
+
+    fun airPodsProWithKeys(): DualBlePodSnapshot = MockDualAppleBlePodSnapshot(
+        _model = PodModel.AIRPODS_PRO2,
+        _label = "My AirPods Pro",
+        batteryLeftPodPercent = 0.80f,
+        batteryRightPodPercent = 0.45f,
+        _batteryCasePercent = 0.60f,
+        _isIRKMatch = true,
+        _hasPrivatePayload = true,
+        leftPodIcon = R.drawable.device_airpods_pro2_left,
+        rightPodIcon = R.drawable.device_airpods_pro2_right,
+        _caseIcon = R.drawable.device_airpods_pro2_case,
+        _address = "AA:BB:CC:DD:EE:FF",
+    )
+
+    // --- PodDevice wrappers ---
+
+    fun dualPodMonitored(): PodDevice = PodDevice(
+        profileId = "preview-dual",
+        ble = airPodsProFullCharge(),
+        aap = null,
+    )
+
+    fun dualPodMonitoredMixed(): PodDevice = PodDevice(
+        profileId = "preview-dual-mixed",
+        label = "My AirPods Pro",
+        ble = airPodsProMixed(),
+        aap = null,
+    )
+
+    fun dualPodMonitoredWithKeys(): PodDevice = PodDevice(
+        profileId = "preview-dual-keys",
+        label = "My AirPods Pro",
+        ble = airPodsProWithKeys(),
+        aap = null,
+    )
+
+    fun dualPodMonitoredWithAap(): PodDevice = PodDevice(
+        profileId = "preview-dual-aap",
+        label = "My AirPods Pro",
+        ble = airPodsProWithKeys(),
+        aap = AapPodState(
+            connectionState = AapPodState.ConnectionState.READY,
+            settings = mapOf(
+                AapSetting.AncMode::class to AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ADAPTIVE,
+                    supported = listOf(
+                        AapSetting.AncMode.Value.OFF,
+                        AapSetting.AncMode.Value.ON,
+                        AapSetting.AncMode.Value.TRANSPARENCY,
+                        AapSetting.AncMode.Value.ADAPTIVE,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    /**
+     * Dual pods with a fully-populated AAP session: ANC on, both pods in-ear, left pod as the
+     * primary (microphone) pod. Used to preview the card with all status flags AND a battery estimate.
+     */
+    fun dualPodFullyLoaded(): PodDevice = PodDevice(
+        profileId = "preview-dual-full",
+        label = "My AirPods Pro",
+        ble = airPodsProWithKeys(),
+        aap = AapPodState(
+            connectionState = AapPodState.ConnectionState.READY,
+            settings = mapOf(
+                AapSetting.AncMode::class to AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ON,
+                    supported = listOf(
+                        AapSetting.AncMode.Value.OFF,
+                        AapSetting.AncMode.Value.ON,
+                        AapSetting.AncMode.Value.TRANSPARENCY,
+                        AapSetting.AncMode.Value.ADAPTIVE,
+                    ),
+                ),
+                AapSetting.EarDetection::class to AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                ),
+                AapSetting.PrimaryPod::class to AapSetting.PrimaryPod(
+                    pod = AapSetting.PrimaryPod.Pod.LEFT,
+                ),
+            ),
+        ),
+    )
+
+    /** Dual pods with a profile that has reaction toggles set — used for the Reactions screenshot. */
+    fun dualPodMonitoredWithReactions(): PodDevice = PodDevice(
+        profileId = "preview-dual-reactions",
+        label = "My AirPods Pro",
+        ble = airPodsProWithKeys(),
+        aap = null,
+        reactions = ReactionConfig(
+            autoPause = true,
+            autoPlay = true,
+            onePodMode = false,
+            autoConnect = true,
+            showPopUpOnCaseOpen = true,
+            showPopUpOnConnection = false,
+        ),
+    )
+
+    /**
+     * Dual pods with hand-picked battery levels. The case reads at decile granularity, like the
+     * public advertisement it would come from.
+     */
+    fun dualPodBatteries(
+        left: Float? = 0.80f,
+        right: Float? = 0.45f,
+        case: Float? = 0.60f,
+        model: PodModel = PodModel.AIRPODS_PRO2,
+        label: String = "My AirPods Pro",
+    ): PodDevice = PodDevice(
+        profileId = "preview-dual-batteries",
+        label = label,
+        ble = MockDualBlePodSnapshot(
+            _model = model,
+            _label = label,
+            batteryLeftPodPercent = left,
+            batteryRightPodPercent = right,
+            _batteryCasePercent = case,
+            leftPodIcon = model.leftPodIconRes ?: R.drawable.device_airpods_gen1_left,
+            rightPodIcon = model.rightPodIconRes ?: R.drawable.device_airpods_gen1_right,
+            _caseIcon = model.caseIconRes ?: R.drawable.device_airpods_gen1_case,
+            _address = "AA:BB:CC:DD:EE:FF",
+        ),
+        aap = null,
+    )
+
+    /** A single-pod device with a hand-picked battery level. */
+    fun singlePodBattery(
+        percent: Float,
+        model: PodModel = PodModel.AIRPODS_MAX,
+        label: String = "AirPods Max",
+    ): PodDevice = PodDevice(
+        profileId = "preview-single-battery",
+        label = label,
+        ble = MockSingleBlePodSnapshot(
+            _model = model,
+            _label = label,
+            batteryHeadsetPercent = percent,
+            _isBeingWorn = true,
+            _address = "AA:BB:CC:DD:EE:FF",
+        ),
+        aap = null,
+    )
+
+    fun singlePodMonitored(): PodDevice = PodDevice(
+        profileId = "preview-single",
+        label = "AirPods Max",
+        ble = airPodsMax(),
+        aap = null,
+    )
+
+    fun singlePodMonitoredWithAap(): PodDevice = PodDevice(
+        profileId = "preview-single-aap",
+        label = "AirPods Max",
+        ble = airPodsMaxCharging(),
+        aap = AapPodState(
+            connectionState = AapPodState.ConnectionState.READY,
+            settings = mapOf(
+                AapSetting.AncMode::class to AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ON,
+                    supported = listOf(
+                        AapSetting.AncMode.Value.OFF,
+                        AapSetting.AncMode.Value.ON,
+                        AapSetting.AncMode.Value.TRANSPARENCY,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    fun unknownMonitored(): PodDevice = PodDevice(
+        profileId = null,
+        ble = unknownDevice(),
+        aap = null,
+    )
+
+    /** Dual pods matched to a profile that has no paired Bluetooth device selected. */
+    fun dualPodMissingPairedDevice(): PodDevice = PodDevice(
+        profileId = "preview-dual-missing-paired",
+        ble = MockDualBlePodSnapshot(
+            _model = PodModel.AIRPODS_PRO2,
+            _label = "My AirPods Pro",
+            batteryLeftPodPercent = 0.80f,
+            batteryRightPodPercent = 0.45f,
+            _batteryCasePercent = 0.60f,
+            _isLeftPodCharging = true,
+            leftPodIcon = R.drawable.device_airpods_pro2_left,
+            rightPodIcon = R.drawable.device_airpods_pro2_right,
+            _caseIcon = R.drawable.device_airpods_pro2_case,
+        ),
+        aap = null,
+    )
+
+    /** Single pod matched to a profile that has no paired Bluetooth device selected. */
+    fun singlePodMissingPairedDevice(): PodDevice = PodDevice(
+        profileId = "preview-single-missing-paired",
+        ble = MockSingleBlePodSnapshot(
+            _model = PodModel.AIRPODS_MAX,
+            _label = "AirPods Max",
+            batteryHeadsetPercent = 0.85f,
+            _isBeingWorn = true,
+        ),
+        aap = null,
+    )
+
+    /** Cached-only dual pod — device fully offline, showing last known state. */
+    fun dualPodCachedOnly(): PodDevice = PodDevice(
+        profileId = "preview-cached",
+        ble = null,
+        aap = null,
+        profileAddress = "AA:BB:CC:DD:EE:FF",
+        profileModel = PodModel.AIRPODS_PRO2,
+        cached = CachedDeviceState(
+            profileId = "preview-cached",
+            model = PodModel.AIRPODS_PRO2,
+            address = "AA:BB:CC:DD:EE:FF",
+            left = CachedDeviceState.CachedBatterySlot(0.65f, MOCK_NOW.minusSeconds(3600)),
+            right = CachedDeviceState.CachedBatterySlot(0.50f, MOCK_NOW.minusSeconds(3600)),
+            case = CachedDeviceState.CachedBatterySlot(0.80f, MOCK_NOW.minusSeconds(3600)),
+            isLeftCharging = false,
+            isRightCharging = false,
+            isCaseCharging = false,
+            lastSeenAt = MOCK_NOW.minusSeconds(3600),
+        ),
+    )
+
+    /** Cached-only single pod — device fully offline, showing last known state. */
+    fun singlePodCachedOnly(): PodDevice = PodDevice(
+        profileId = "preview-cached-single",
+        ble = null,
+        aap = null,
+        cached = CachedDeviceState(
+            profileId = "preview-cached-single",
+            model = PodModel.AIRPODS_MAX,
+            headset = CachedDeviceState.CachedBatterySlot(0.40f, MOCK_NOW.minusSeconds(7200)),
+            lastSeenAt = MOCK_NOW.minusSeconds(7200),
+        ),
+    )
+
+    // --- UpgradeInfo ---
+
+    fun fossInfo(isPro: Boolean = false): UpgradeRepo.Info = MockUpgradeInfo(
+        type = UpgradeRepo.Type.FOSS,
+        isPro = isPro,
+    )
+
+    fun gplayInfo(isPro: Boolean = false): UpgradeRepo.Info = MockUpgradeInfo(
+        type = UpgradeRepo.Type.GPLAY,
+        isPro = isPro,
+    )
+}
+
+private data class MockUpgradeInfo(
+    override val type: UpgradeRepo.Type,
+    override val isPro: Boolean,
+    override val upgradedAt: Instant? = null,
+    override val error: Throwable? = null,
+    // Previews render the definitive state, never the cold-start seed.
+    override val isSettled: Boolean = true,
+) : UpgradeRepo.Info
+
+private class MockDualBlePodSnapshot(
+    private val _model: PodModel,
+    private val _label: String,
+    override val batteryLeftPodPercent: Float?,
+    override val batteryRightPodPercent: Float?,
+    private val _batteryCasePercent: Float?,
+    private val _isCaseCharging: Boolean = false,
+    private val _isLeftPodCharging: Boolean = false,
+    private val _isRightPodCharging: Boolean = false,
+    private val _isLeftPodInEar: Boolean = false,
+    private val _isRightPodInEar: Boolean = false,
+    private val _isLeftPodMicrophone: Boolean = false,
+    private val _isRightPodMicrophone: Boolean = false,
+    override val leftPodIcon: Int = R.drawable.device_airpods_gen1_left,
+    override val rightPodIcon: Int = R.drawable.device_airpods_gen1_right,
+    private val _caseIcon: Int = R.drawable.device_airpods_gen1_case,
+    private val _address: String? = null,
+    rssi: Int = -50,
+) : DualBlePodSnapshot, HasCase, HasChargeDetectionDual, HasEarDetectionDual, HasDualMicrophone {
+    override val identifier: BlePodSnapshot.Id = BlePodSnapshot.Id()
+    override val model: PodModel = _model
+    override val seenLastAt: Instant = MOCK_NOW
+    override val seenFirstAt: Instant = MOCK_NOW
+    override val seenCounter: Int = 5
+    override val scanResult: BleScanResult = MockPodDataProvider.dummyScanResult(rssi)
+    override val reliability: Float = 1.0f
+    override val signalQuality: Float = 0.75f
+    override val iconRes: Int = _model.iconRes
+    override val meta: BlePodSnapshot.Meta = object : BlePodSnapshot.Meta {
+        override val profile: DeviceProfile = AppleDeviceProfile(label = _label, model = _model, address = _address)
+    }
+
+    override fun getLabel(context: Context): String = _model.label
+
+    // HasCase
+    override val batteryCasePercent: Float? = _batteryCasePercent
+    override val isCaseCharging: Boolean = _isCaseCharging
+    override val caseIcon: Int = _caseIcon
+
+    // HasChargeDetectionDual
+    override val isLeftPodCharging: Boolean = _isLeftPodCharging
+    override val isRightPodCharging: Boolean = _isRightPodCharging
+
+    // HasEarDetectionDual
+    override val isLeftPodInEar: Boolean = _isLeftPodInEar
+    override val isRightPodInEar: Boolean = _isRightPodInEar
+
+    // HasDualMicrophone
+    override val isLeftPodMicrophone: Boolean = _isLeftPodMicrophone
+    override val isRightPodMicrophone: Boolean = _isRightPodMicrophone
+}
+
+private class MockDualBlePodSnapshotNoCase(
+    private val _model: PodModel,
+    private val _label: String,
+    override val batteryLeftPodPercent: Float?,
+    override val batteryRightPodPercent: Float?,
+    override val leftPodIcon: Int = R.drawable.device_airpods_gen1_left,
+    override val rightPodIcon: Int = R.drawable.device_airpods_gen1_right,
+    rssi: Int = -50,
+) : DualBlePodSnapshot, HasChargeDetectionDual, HasEarDetectionDual {
+    override val identifier: BlePodSnapshot.Id = BlePodSnapshot.Id()
+    override val model: PodModel = _model
+    override val seenLastAt: Instant = MOCK_NOW
+    override val seenFirstAt: Instant = MOCK_NOW
+    override val seenCounter: Int = 5
+    override val scanResult: BleScanResult = MockPodDataProvider.dummyScanResult(rssi)
+    override val reliability: Float = 1.0f
+    override val signalQuality: Float = 0.70f
+    override val iconRes: Int = _model.iconRes
+    override val meta: BlePodSnapshot.Meta = object : BlePodSnapshot.Meta {
+        override val profile: DeviceProfile = AppleDeviceProfile(label = _label, model = _model)
+    }
+
+    override fun getLabel(context: Context): String = _model.label
+
+    // HasChargeDetectionDual
+    override val isLeftPodCharging: Boolean = false
+    override val isRightPodCharging: Boolean = false
+
+    // HasEarDetectionDual
+    override val isLeftPodInEar: Boolean = false
+    override val isRightPodInEar: Boolean = false
+}
+
+private class MockSingleBlePodSnapshot(
+    private val _model: PodModel,
+    private val _label: String,
+    override val batteryHeadsetPercent: Float?,
+    private val _isHeadsetBeingCharged: Boolean = false,
+    private val _isBeingWorn: Boolean = false,
+    private val _address: String? = null,
+    rssi: Int = -50,
+) : SingleBlePodSnapshot, HasChargeDetection, HasEarDetection {
+    override val identifier: BlePodSnapshot.Id = BlePodSnapshot.Id()
+    override val model: PodModel = _model
+    override val seenLastAt: Instant = MOCK_NOW
+    override val seenFirstAt: Instant = MOCK_NOW
+    override val seenCounter: Int = 5
+    override val scanResult: BleScanResult = MockPodDataProvider.dummyScanResult(rssi)
+    override val reliability: Float = 1.0f
+    override val signalQuality: Float = 0.80f
+    override val iconRes: Int = _model.iconRes
+    override val meta: BlePodSnapshot.Meta = object : BlePodSnapshot.Meta {
+        override val profile: DeviceProfile = AppleDeviceProfile(label = _label, model = _model, address = _address)
+    }
+
+    override fun getLabel(context: Context): String = _model.label
+
+    // HasChargeDetection
+    override val isHeadsetBeingCharged: Boolean = _isHeadsetBeingCharged
+
+    // HasEarDetection
+    override val isBeingWorn: Boolean = _isBeingWorn
+}
+
+private class MockSingleAppleBlePodSnapshot(
+    private val _model: PodModel,
+    private val _label: String,
+    override val batteryHeadsetPercent: Float?,
+    private val _isHeadsetBeingCharged: Boolean = false,
+    private val _isBeingWorn: Boolean = false,
+    private val _isIRKMatch: Boolean = false,
+    private val _hasPrivatePayload: Boolean = false,
+    private val _address: String? = null,
+    rssi: Int = -50,
+) : SingleBlePodSnapshot, ApplePods, HasChargeDetection, HasEarDetection {
+    override val identifier: BlePodSnapshot.Id = BlePodSnapshot.Id()
+    override val model: PodModel = _model
+    override val seenLastAt: Instant = MOCK_NOW
+    override val seenFirstAt: Instant = MOCK_NOW
+    override val seenCounter: Int = 5
+    override val scanResult: BleScanResult = MockPodDataProvider.dummyScanResult(rssi)
+    override val reliability: Float = 1.0f
+    override val signalQuality: Float = 0.80f
+    override val iconRes: Int = _model.iconRes
+    override val meta: ApplePods.AppleMeta = ApplePods.AppleMeta(
+        isIRKMatch = _isIRKMatch,
+        profile = AppleDeviceProfile(label = _label, model = _model, address = _address),
+    )
+    override val payload: ProximityPayload = ProximityPayload(
+        public = ProximityPayload.Public(UByteArray(9)),
+        private = if (_hasPrivatePayload) ProximityPayload.Private(UByteArray(8)) else null,
+    )
+
+    override fun getLabel(context: Context): String = _model.label
+
+    // HasChargeDetection
+    override val isHeadsetBeingCharged: Boolean = _isHeadsetBeingCharged
+
+    // HasEarDetection
+    override val isBeingWorn: Boolean = _isBeingWorn
+}
+
+private class MockDualAppleBlePodSnapshot(
+    private val _model: PodModel,
+    private val _label: String,
+    override val batteryLeftPodPercent: Float?,
+    override val batteryRightPodPercent: Float?,
+    private val _batteryCasePercent: Float?,
+    private val _isCaseCharging: Boolean = false,
+    private val _isLeftPodCharging: Boolean = false,
+    private val _isRightPodCharging: Boolean = false,
+    private val _isLeftPodInEar: Boolean = false,
+    private val _isRightPodInEar: Boolean = false,
+    private val _isLeftPodMicrophone: Boolean = false,
+    private val _isRightPodMicrophone: Boolean = false,
+    private val _isIRKMatch: Boolean = false,
+    private val _hasPrivatePayload: Boolean = false,
+    override val leftPodIcon: Int = R.drawable.device_airpods_gen1_left,
+    override val rightPodIcon: Int = R.drawable.device_airpods_gen1_right,
+    private val _caseIcon: Int = R.drawable.device_airpods_gen1_case,
+    private val _address: String? = null,
+    rssi: Int = -50,
+) : DualBlePodSnapshot, ApplePods, HasCase, HasChargeDetectionDual, HasEarDetectionDual, HasDualMicrophone {
+    override val identifier: BlePodSnapshot.Id = BlePodSnapshot.Id()
+    override val model: PodModel = _model
+    override val seenLastAt: Instant = MOCK_NOW
+    override val seenFirstAt: Instant = MOCK_NOW
+    override val seenCounter: Int = 5
+    override val scanResult: BleScanResult = MockPodDataProvider.dummyScanResult(rssi)
+    override val reliability: Float = 1.0f
+    override val signalQuality: Float = 0.75f
+    override val iconRes: Int = _model.iconRes
+    override val meta: ApplePods.AppleMeta = ApplePods.AppleMeta(
+        isIRKMatch = _isIRKMatch,
+        profile = AppleDeviceProfile(label = _label, model = _model, address = _address),
+    )
+    override val payload: ProximityPayload = ProximityPayload(
+        public = ProximityPayload.Public(UByteArray(9)),
+        private = if (_hasPrivatePayload) ProximityPayload.Private(UByteArray(8)) else null,
+    )
+
+    override fun getLabel(context: Context): String = _model.label
+
+    // HasCase
+    override val batteryCasePercent: Float? = _batteryCasePercent
+    override val isCaseCharging: Boolean = _isCaseCharging
+    override val caseIcon: Int = _caseIcon
+
+    // HasChargeDetectionDual
+    override val isLeftPodCharging: Boolean = _isLeftPodCharging
+    override val isRightPodCharging: Boolean = _isRightPodCharging
+
+    // HasEarDetectionDual
+    override val isLeftPodInEar: Boolean = _isLeftPodInEar
+    override val isRightPodInEar: Boolean = _isRightPodInEar
+
+    // HasDualMicrophone
+    override val isLeftPodMicrophone: Boolean = _isLeftPodMicrophone
+    override val isRightPodMicrophone: Boolean = _isRightPodMicrophone
+}

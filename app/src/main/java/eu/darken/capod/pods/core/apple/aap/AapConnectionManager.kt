@@ -1,0 +1,245 @@
+package eu.darken.capod.pods.core.apple.aap
+
+import android.bluetooth.BluetoothDevice
+import eu.darken.capod.common.TimeSource
+import eu.darken.capod.common.bluetooth.BluetoothAddress
+import eu.darken.capod.common.bluetooth.l2cap.L2capSocketFactory
+import eu.darken.capod.common.coroutine.AppScope
+import eu.darken.capod.common.debug.logging.log
+import eu.darken.capod.common.debug.logging.logTag
+import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.aap.engine.AapConnection
+import eu.darken.capod.pods.core.apple.aap.protocol.AapCommand
+import eu.darken.capod.pods.core.apple.aap.protocol.AapDeviceProfile
+import eu.darken.capod.pods.core.apple.aap.protocol.ConversationAwarenessEvent
+import eu.darken.capod.pods.core.apple.aap.protocol.KeyExchangeResult
+import eu.darken.capod.pods.core.apple.aap.protocol.StemPressEvent
+import eu.darken.capod.reaction.core.headgesture.HeadMotion
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Singleton managing all AAP L2CAP connections.
+ * Keyed by [BluetoothAddress] (stable across scan gaps and app restarts for bonded devices).
+ * Connections are owned internally — consumers interact via [sendCommand] and observe via [allStates].
+ */
+@Singleton
+class AapConnectionManager @Inject constructor(
+    private val socketFactory: L2capSocketFactory,
+    @AppScope private val scope: CoroutineScope,
+    private val timeSource: TimeSource,
+) {
+    companion object {
+        private val TAG = logTag("AAP", "Manager")
+    }
+
+    private val mutex = Mutex()
+    private val connections = mutableMapOf<BluetoothAddress, AapConnection>()
+    private val connectionJobs = mutableMapOf<BluetoothAddress, Job>()
+    private val intentionalDisconnects = mutableSetOf<BluetoothAddress>()
+
+    private val _allStates = MutableStateFlow<Map<BluetoothAddress, AapPodState>>(emptyMap())
+    val allStates: StateFlow<Map<BluetoothAddress, AapPodState>> = _allStates.asStateFlow()
+
+    private val _disconnectEvents = MutableSharedFlow<AapDisconnectEvent>(extraBufferCapacity = 16)
+    val disconnectEvents: SharedFlow<AapDisconnectEvent> = _disconnectEvents.asSharedFlow()
+
+    /** Emits when a connection receives private keys (IRK/ENC) from the device. */
+    private val _keysReceived = MutableSharedFlow<Pair<BluetoothAddress, KeyExchangeResult>>(extraBufferCapacity = 16)
+    val keysReceived: SharedFlow<Pair<BluetoothAddress, KeyExchangeResult>> = _keysReceived.asSharedFlow()
+
+    /** Emits transient stem press events from any connected device. */
+    private val _stemPressEvents = MutableSharedFlow<Pair<BluetoothAddress, StemPressEvent>>(extraBufferCapacity = 32)
+    val stemPressEvents: SharedFlow<Pair<BluetoothAddress, StemPressEvent>> = _stemPressEvents.asSharedFlow()
+    private val _headMotion = MutableSharedFlow<Pair<BluetoothAddress, HeadMotion>>(extraBufferCapacity = 64)
+    val headMotion: SharedFlow<Pair<BluetoothAddress, HeadMotion>> = _headMotion.asSharedFlow()
+    private val _headSamples = MutableSharedFlow<Pair<BluetoothAddress, eu.darken.capod.reaction.core.headgesture.HeadTrackingSample>>(extraBufferCapacity = 64)
+    val headSamples: SharedFlow<Pair<BluetoothAddress, eu.darken.capod.reaction.core.headgesture.HeadTrackingSample>> = _headSamples.asSharedFlow()
+    private val _heartRate = MutableSharedFlow<Pair<BluetoothAddress, eu.darken.capod.reaction.core.heartrate.HeartRateReport>>(extraBufferCapacity = 32)
+    val heartRate: SharedFlow<Pair<BluetoothAddress, eu.darken.capod.reaction.core.heartrate.HeartRateReport>> = _heartRate.asSharedFlow()
+
+    /**
+     * Emits when a connected device fires a Sleep Detection update (AAP opcode 0x57).
+     * Address-only — the opaque payload stays logged at engine level per the "never suppress
+     * protocol logging" convention; downstream consumers (SleepReaction) only need the origin
+     * address to decide whether to act.
+     */
+    private val _sleepEvents = MutableSharedFlow<BluetoothAddress>(extraBufferCapacity = 16)
+    val sleepEvents: SharedFlow<BluetoothAddress> = _sleepEvents.asSharedFlow()
+
+    /**
+     * Emits when a connected device reports a Conversational Awareness transition (START / RESUME /
+     * HOLD / STOP, AAP command 0x4B). Paired with the origin address so the conversation reaction
+     * can gate on the primary device. Every well-formed frame is classified and emitted (unknown
+     * status bytes map to HOLD); only structurally malformed frames are dropped (see [AapSessionEngine]).
+     */
+    private val _conversationalAwarenessEvents =
+        MutableSharedFlow<Pair<BluetoothAddress, ConversationAwarenessEvent>>(extraBufferCapacity = 16)
+    val conversationalAwarenessEvents: SharedFlow<Pair<BluetoothAddress, ConversationAwarenessEvent>> =
+        _conversationalAwarenessEvents.asSharedFlow()
+
+    /** Emits when a SetAncMode(OFF) command was rejected by the device (inferred by the engine). */
+    private val _offRejectedEvents = MutableSharedFlow<BluetoothAddress>(extraBufferCapacity = 16)
+    val offRejectedEvents: SharedFlow<BluetoothAddress> = _offRejectedEvents.asSharedFlow()
+
+    /**
+     * Emits when any setting command failed verification on the device side. Unlike
+     * [offRejectedEvents] this covers every rejected write (including the ANC-OFF case); UI
+     * consumers filter by the command type they care about — e.g. the charge-cap toggle shows
+     * a snackbar only for [AapCommand.SetDynamicEndOfCharge].
+     */
+    private val _settingRejectedEvents =
+        MutableSharedFlow<Pair<BluetoothAddress, AapCommand>>(extraBufferCapacity = 16)
+    val settingRejectedEvents: SharedFlow<Pair<BluetoothAddress, AapCommand>> =
+        _settingRejectedEvents.asSharedFlow()
+
+    fun deviceState(address: BluetoothAddress) = _allStates.map { it[address] }
+
+    suspend fun connect(
+        address: BluetoothAddress,
+        device: BluetoothDevice,
+        model: PodModel,
+    ) = mutex.withLock {
+        if (connections.containsKey(address)) {
+            log(TAG) { "Already connected to $address" }
+            return
+        }
+
+        // Clear stale intentional-disconnect flag from previous connection lifecycle
+        intentionalDisconnects.remove(address)
+
+        val profile = AapDeviceProfile.forModel(model)
+        val connection = AapConnection(device, profile, socketFactory, timeSource = timeSource)
+        connections[address] = connection
+
+        try {
+            connection.connect(scope)
+        } catch (e: Exception) {
+            connections.remove(address)
+            throw e
+        }
+
+        // Collect connection state and propagate live updates to allStates.
+        // The coroutine cancels itself after handling DISCONNECTED,
+        // which also cancels the child key-forwarding coroutine.
+        connectionJobs[address] = scope.launch {
+            launch { connection.headMotion.collect { _headMotion.tryEmit(address to it) } }
+            launch { connection.headSamples.collect { _headSamples.tryEmit(address to it) } }
+            launch { connection.heartRate.collect { _heartRate.tryEmit(address to it) } }
+            // Forward private keys from this connection (child coroutine)
+            launch {
+                connection.keysReceived.collect { keys ->
+                    _keysReceived.tryEmit(address to keys)
+                }
+            }
+
+            // Forward stem press events from this connection (child coroutine)
+            launch {
+                connection.stemPressEvents.collect { event ->
+                    _stemPressEvents.tryEmit(address to event)
+                }
+            }
+
+            // Forward sleep events from this connection (child coroutine). Address-only —
+            // the opaque payload stays logged at the engine layer.
+            launch {
+                connection.sleepEvents.collect {
+                    _sleepEvents.tryEmit(address)
+                }
+            }
+
+            // Forward conversational-awareness speaking transitions from this connection (child coroutine).
+            launch {
+                connection.conversationalAwarenessEvents.collect { event ->
+                    _conversationalAwarenessEvents.tryEmit(address to event)
+                }
+            }
+
+            // Forward OFF-rejection events from this connection (child coroutine)
+            launch {
+                connection.offRejected.collect {
+                    _offRejectedEvents.tryEmit(address)
+                }
+            }
+
+            // Forward generic setting-rejection events from this connection (child coroutine).
+            // Covers every rejected write — consumers filter by the command they care about.
+            launch {
+                connection.settingRejected.collect { command ->
+                    _settingRejectedEvents.tryEmit(address to command)
+                }
+            }
+
+            connection.state.collect { podState ->
+                if (podState.connectionState == AapPodState.ConnectionState.DISCONNECTED) {
+                    log(TAG) { "Connection to $address disconnected" }
+                    val wasIntentional = mutex.withLock {
+                        // An old collector must never retire a replacement for the same address.
+                        if (connections[address] !== connection) return@withLock null
+                        connections.remove(address)
+                        connectionJobs.remove(address)
+                        connection.disconnect()
+                        _allStates.update { it - address }
+                        val intentional = address in intentionalDisconnects
+                        intentionalDisconnects.remove(address)
+                        intentional
+                    }
+
+                    if (wasIntentional == false) {
+                        _disconnectEvents.tryEmit(AapDisconnectEvent(address, connection.wasEverReady))
+                    }
+
+                    // End this collector coroutine (also cancels child key-forwarding coroutine)
+                    cancel()
+                } else {
+                    mutex.withLock {
+                        if (connections[address] === connection) {
+                            _allStates.update { it + (address to podState) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    suspend fun disconnect(address: BluetoothAddress) = mutex.withLock {
+        intentionalDisconnects.add(address)
+        val connection = connections.remove(address) ?: run {
+            intentionalDisconnects.remove(address)
+            return
+        }
+        connectionJobs.remove(address)?.cancel()
+        connection.disconnect()
+        _allStates.update { it - address }
+    }
+
+    suspend fun sendCommand(address: BluetoothAddress, command: AapCommand) {
+        val connection = mutex.withLock { connections[address] }
+            ?: throw IllegalStateException("No connection for $address")
+        connection.send(command)
+    }
+}
+
+/**
+ * Emitted on an unintentional AAP disconnect. [wasEverReady] tells the reconnect layer whether this
+ * session ever completed the handshake (reached READY) — a never-ready disconnect is a failed
+ * handshake/short session and feeds the escalating reconnect backoff; a was-ready drop reconnects promptly.
+ */
+data class AapDisconnectEvent(
+    val address: BluetoothAddress,
+    val wasEverReady: Boolean,
+)

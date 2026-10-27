@@ -1,0 +1,30 @@
+<resources>
+    <string name="head_preview_title">头部姿态与手势测试</string>
+    <string name="head_preview_entry_description">实验性相对姿态与安全手势预览</string>
+    <string name="head_preview_back">返回</string>
+    <string name="head_preview_start">开始预览</string>
+    <string name="head_preview_stop">停止预览</string>
+    <string name="head_preview_recalibrate">重新校准</string>
+    <string name="head_preview_reset_counts">清零次数</string>
+    <string name="head_preview_sound">声音反馈（主动开启）</string>
+    <string name="head_preview_waiting_monitor">等待监测服务启动</string>
+    <string name="head_preview_choose_primary">请将此耳机设为主要设备</string>
+    <string name="head_preview_waiting_audio">等待系统音频连接</string>
+    <string name="head_preview_waiting_aap">等待 AAP 控制通道</string>
+    <string name="head_preview_wear">请佩戴耳机以接收传感器数据</string>
+    <string name="head_preview_waiting_samples">等待头部传感器报告</string>
+    <string name="head_preview_start_failed">头部传感器启动失败，请重新连接后重试</string>
+    <string name="head_preview_calibrating">请保持头部静止，采集 10 个稳定样本</string>
+    <string name="head_preview_paused_call">通话期间暂停预览；已启用的来电手势优先</string>
+    <string name="head_preview_stale">暂无新报告，已隐藏姿态</string>
+    <string name="head_preview_unknown_call">无法确认通话状态，已禁用动作和提示音</string>
+    <string name="head_preview_experimental">仅为实验性相对姿态估计。坐标方向与固件支持仍需真机验证。</string>
+    <string name="head_preview_safe">测试模式只反馈识别结果，不执行音乐操作。</string>
+    <string name="head_preview_pitch">相对俯仰：%1$.1f°</string>
+    <string name="head_preview_yaw">相对偏航：%1$.1f°</string>
+    <string name="head_preview_motion">原始运动 水平 %1$d · 垂直 %2$d</string>
+    <string name="head_preview_age">最近报告：%1$d 毫秒前</string>
+    <string name="head_preview_counts">点头 %1$d 次 · 摇头 %2$d 次</string>
+    <string name="head_preview_progress">校准：%1$d / 10</string>
+    <string name="head_preview_no_measurement">暂无实时测量</string>
+</resources>

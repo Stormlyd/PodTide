@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="upgrades_gplay_unavailable_error">Google Play services are unavailable.</string>
+    <string name="upgrades_gplay_billing_error_label">Google Play Error</string>
+    <string name="upgrades_gplay_billing_error_description">There was an error in Google Play. Please try again later or reboot your phone.\n\nError: %s</string>
+    <string name="upgrades_gplay_already_owned_label">Already purchased?</string>
+    <string name="upgrades_gplay_already_owned_description">Google Play reports that you already own this upgrade, but it couldn\'t be restored. Make sure you are using the Google account you purchased with. Play Store synchronization may take time — try rebooting, clearing the Google Play cache or simply waiting.</string>
+    <string name="upgrade_badge_label">Pro</string>
+    <!-- %1$s is the full localized brand ("CAPod Pro", composed from the app name + postfix) — translate the sentence around it, keep the placeholder. -->
+    <string name="upgrade_screen_title_template">Get %1$s</string>
+    <string name="upgrade_preamble">CAPod is developed by a single person. Upgrading unlocks extra features and helps keep the app alive.</string>
+    <string name="upgrade_screen_subscription_trial_action">Start free trial</string>
+    <string name="upgrade_screen_subscription_action">Subscribe yearly</string>
+    <string name="upgrade_screen_iap_action">Buy once</string>
+    <string name="upgrade_screen_restore_purchase_action">Restore purchase</string>
+    <string name="upgrade_screen_restore_sync_patience_hint">Try again in a few minutes if your purchase doesn\'t appear.</string>
+    <string name="upgrade_screen_restore_multiaccount_hint">Make sure you\'re signed in with the same Google account used for the purchase.</string>
+    <string name="upgrade_screen_restore_banner_title">Already bought Pro?</string>
+    <string name="upgrade_screen_restore_banner_body">It looks like you upgraded to Pro on this device before. Restore your purchase to unlock it again.</string>
+    <string name="upgrade_screen_restore_success_message">Purchase restored.</string>
+    <string name="upgrade_screen_restore_status_title">Status looks wrong?</string>
+    <string name="upgrade_screen_restore_status_body">If you own an upgrade that isn\'t shown here, restore your purchase.</string>
+    <string name="upgrade_screen_owned_hero_title">You have CAPod Pro!</string>
+    <string name="upgrade_screen_owned_hero_sub_body">Unlocked by your subscription. Thank you for supporting CAPod!</string>
+    <string name="upgrade_screen_owned_hero_iap_body">Unlocked by your one-time purchase. Thank you for supporting CAPod!</string>
+    <string name="upgrade_screen_owned_sub_renewing_body">Your subscription is active and set to renew. Billing is managed by Google Play.</string>
+    <string name="upgrade_screen_owned_sub_not_renewing_body">Your subscription is active, but not set to renew. Pro stays available until the current period ends.</string>
+    <string name="upgrade_screen_owned_iap_title">One-time purchase</string>
+    <string name="upgrade_screen_owned_iap_body">Yours forever. No renewals, no expiry.</string>
+    <string name="upgrade_screen_owned_both_renewing_warning">You own the one-time purchase, but your subscription is still set to renew. Cancel it in Google Play to avoid paying twice.</string>
+    <string name="upgrade_screen_manage_subscription_action">Manage subscription</string>
+    <string name="upgrade_screen_iap_offer_title">Switch to the one-time purchase</string>
+    <string name="upgrade_screen_owned_iap_locked_note">Available once your subscription is no longer set to renew. Cancel it in Google Play to switch.</string>
+    <string name="upgrade_screen_owned_iap_purchase_note">This is a separate purchase — it does not cancel or refund your subscription. Use the same Google account.</string>
+    <string name="upgrade_screen_sub_still_renewing_title">Subscription still active</string>
+    <string name="upgrade_screen_sub_still_renewing_message">Your subscription is still set to renew. Cancel it in Google Play first, then switch to the one-time purchase. Just cancelled? Give Google Play a moment and try again.</string>
+    <string name="upgrade_screen_purchase_check_failed_message">Couldn\'t check your purchases with Google Play. To avoid a double purchase, try again in a moment.</string>
+    <string name="upgrade_screen_pending_card_title">Payment pending</string>
+    <string name="upgrade_screen_pending_card_body">Google Play is still processing your payment. Pro unlocks automatically once the payment goes through. Some payment methods can take a while. There is nothing else you need to do.</string>
+    <string name="upgrade_screen_pending_dialog_message">Google Play found a purchase with a pending payment and is still processing it. Pro unlocks automatically once the payment goes through.</string>
+    <string name="upgrade_screen_grace_title">Confirming your purchase</string>
+    <string name="upgrade_screen_grace_body_short">Google Play hasn\'t confirmed your purchase yet. Pro is still active — no action needed.</string>
+    <string name="upgrade_screen_grace_body">Google Play hasn\'t confirmed your purchase for a while. Pro is still active. Make sure you\'re online and signed in with the Google account used for the purchase, then try restoring.</string>
+    <!-- Offercard layout -->
+    <string name="upgrade_screen_offers_title">Upgrade options</string>
+    <string name="upgrade_screen_offers_or">or</string>
+    <string name="upgrade_screen_offers_body">Same features, just different pricing models.</string>
+    <string name="upgrade_screen_offers_unavailable_title">Prices unavailable</string>
+    <string name="upgrade_screen_offers_unavailable_message">Google Play didn\'t return prices right now. Check your connection and try again in a moment.</string>
+    <string name="upgrade_screen_subscription_offer_title">Yearly subscription</string>
+    <string name="upgrade_screen_subscription_offer_body">Renews yearly after the free trial. Cancel anytime in Google Play.</string>
+    <string name="upgrade_screen_subscription_offer_body_no_trial">Renews yearly. Cancel anytime in Google Play.</string>
+    <string name="upgrade_screen_iap_offer_body">One payment, no renewals.</string>
+    <string name="upgrade_screen_benefits_title">Upgrade benefits</string>
+    <string name="upgrade_screen_restore_body">Restoring asks Google Play to re-check this app\'s purchases for the current account. It doesn\'t start a new purchase.</string>
+    <string name="upgrade_screen_restore_checked_message">CAPod just checked Google Play, but no Pro purchase could be confirmed for the account Google Play is using for this app.</string>
+    <string name="upgrade_screen_restore_contact_hint">Still stuck? Contact support from the email that made the purchase and include your Google Play order number.</string>
+    <string name="upgrade_screen_contact_support_action">Contact support</string>
+    <string name="settings_upgrade_status_description">Your upgrade and purchase status.</string>
+    <string name="upgrades_gplay_unavailable_error_description">CAPod can\'t connect to Google Play. Is Google Play installed and up to date? Is your Google Account logged in? Try clearing the cache of the Google Play app and rebooting your device.</string>
+    <!-- Toast shown when the "Google Play" button of an error dialog can't open Google Play's app info, e.g. Google Play is missing or blocked on this device. "Google Play" is a brand name, keep it untranslated. -->
+    <string name="upgrades_gplay_not_installed_message">Couldn\'t open Google Play. It may be missing, disabled or restricted on this device.</string>
+    <string name="upgrades_gplay_internal_error_title">Google Play error</string>
+    <string name="upgrades_gplay_internal_error_description">An internal Google Play error occurred. Please try the following:\n\n• Restart your device\n• Clear Google Play Store cache\n• Try again later</string>
+    <string name="upgrades_gplay_network_error_title">Connection error</string>
+    <string name="upgrades_gplay_network_error_description">Unable to connect to Google Play. Please check your internet connection and try again.</string>
+    <string name="upgrades_gplay_offer_unavailable_title">Offer unavailable</string>
+    <string name="upgrades_gplay_offer_unavailable_description">Google Play is currently not offering this upgrade option. Please try again later or check the Google Play Store.</string>
+    <string name="upgrade_screen_restore_inconclusive_message">The check with Google Play didn\'t finish in time, so your purchase status is still unknown. Nothing has changed on your account.</string>
+</resources>

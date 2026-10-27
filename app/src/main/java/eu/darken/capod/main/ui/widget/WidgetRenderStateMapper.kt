@@ -1,0 +1,145 @@
+package eu.darken.capod.main.ui.widget
+
+import android.content.Context
+import androidx.annotation.ColorInt
+import androidx.appcompat.view.ContextThemeWrapper
+import eu.darken.capod.R
+import eu.darken.capod.monitor.core.PodDevice
+import eu.darken.capod.monitor.core.battery.BatteryEstimate
+import eu.darken.capod.monitor.core.battery.displayMinutes
+import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.ble.formatBatteryDurationShort
+import eu.darken.capod.pods.core.apple.ble.getBatteryDrawable
+
+object WidgetRenderStateMapper {
+
+    fun map(
+        context: Context,
+        device: PodDevice?,
+        theme: WidgetTheme,
+        isPro: Boolean,
+        hasConfiguredProfile: Boolean,
+        profileLabel: String?,
+        layout: BatteryLayout = BatteryLayout.NARROW,
+        estimate: BatteryEstimate? = null,
+        phoneBattery: PhoneBatteryState? = null,
+    ): WidgetRenderState {
+        val bgColor = resolvedBgColor(context, theme)
+        val textColor = resolvedTextColor(context, theme)
+        val iconColor = resolvedIconColor(context, theme)
+
+        return when {
+            !isPro -> WidgetRenderState.Message(
+                theme = theme,
+                resolvedBgColor = bgColor,
+                resolvedTextColor = textColor,
+                resolvedIconColor = iconColor,
+                layout = layout,
+                primaryText = context.getString(R.string.upgrade_capod_label),
+                secondaryText = context.getString(R.string.upgrade_capod_description),
+                phoneBattery = phoneBattery,
+            )
+
+            device != null && device.hasDualPods -> WidgetRenderState.DualPod(
+                theme = theme,
+                resolvedBgColor = bgColor,
+                resolvedTextColor = textColor,
+                resolvedIconColor = iconColor,
+                layout = layout,
+                deviceLabel = profileLabel ?: device.getLabel(context),
+                leftIcon = device.leftPodIcon,
+                leftPercent = device.batteryLeft,
+                leftCharging = device.isLeftPodCharging == true,
+                leftInEar = device.isLeftInEar == true,
+                leftEstimate = estimate?.left.estimateText(context, device.isLeftPodCharging == true),
+                rightIcon = device.rightPodIcon,
+                rightPercent = device.batteryRight,
+                rightCharging = device.isRightPodCharging == true,
+                rightInEar = device.isRightInEar == true,
+                rightEstimate = estimate?.right.estimateText(context, device.isRightPodCharging == true),
+                caseIcon = device.caseIcon,
+                casePercent = device.batteryCase,
+                caseCharging = device.isCaseCharging == true,
+                phoneBattery = phoneBattery,
+            )
+
+            device != null && device.model != PodModel.UNKNOWN -> WidgetRenderState.SinglePod(
+                theme = theme,
+                resolvedBgColor = bgColor,
+                resolvedTextColor = textColor,
+                resolvedIconColor = iconColor,
+                layout = layout,
+                deviceLabel = profileLabel ?: device.getLabel(context),
+                headsetIcon = device.iconRes,
+                percent = device.batteryHeadset,
+                batteryIcon = getBatteryDrawable(device.batteryHeadset),
+                charging = device.isHeadsetBeingCharged == true,
+                worn = device.isBeingWorn == true,
+                estimate = estimate?.headset.estimateText(context, device.isHeadsetBeingCharged == true),
+                phoneBattery = phoneBattery,
+            )
+
+            device != null -> WidgetRenderState.Message(
+                theme = theme,
+                resolvedBgColor = bgColor,
+                resolvedTextColor = textColor,
+                resolvedIconColor = iconColor,
+                layout = layout,
+                primaryText = context.getString(R.string.pods_unknown_label),
+                phoneBattery = phoneBattery,
+            )
+
+            else -> {
+                val messageRes = if (hasConfiguredProfile) {
+                    R.string.widget_no_data_label
+                } else {
+                    R.string.overview_nomaindevice_label
+                }
+                WidgetRenderState.Message(
+                    theme = theme,
+                    resolvedBgColor = bgColor,
+                    resolvedTextColor = textColor,
+                    resolvedIconColor = iconColor,
+                    layout = layout,
+                    primaryText = context.getString(messageRes),
+                    phoneBattery = phoneBattery,
+                )
+            }
+        }
+    }
+
+    private fun BatteryEstimate.Pod?.estimateText(context: Context, charging: Boolean): String? =
+        this?.displayMinutes(charging)?.let { formatBatteryDurationShort(context, it) }
+
+    @ColorInt
+    fun resolvedBgColor(context: Context, theme: WidgetTheme): Int {
+        val bgColor = theme.backgroundColor
+        return if (bgColor != null) {
+            WidgetTheme.applyAlpha(bgColor, theme.backgroundAlpha)
+        } else {
+            resolveThemeColor(context, android.R.attr.colorBackground)
+        }
+    }
+
+    @ColorInt
+    fun resolvedTextColor(context: Context, theme: WidgetTheme): Int {
+        return theme.foregroundColor ?: resolveThemeColor(context, android.R.attr.textColorPrimary)
+    }
+
+    @ColorInt
+    fun resolvedIconColor(context: Context, theme: WidgetTheme): Int {
+        return theme.foregroundColor ?: resolveThemeColor(context, android.R.attr.colorAccent)
+    }
+
+    @ColorInt
+    fun resolveThemeColor(context: Context, attr: Int): Int {
+        val themedContext = ContextThemeWrapper(
+            context,
+            com.google.android.material.R.style.Theme_Material3_DynamicColors_DayNight,
+        )
+        val typedArray = themedContext.theme.obtainStyledAttributes(intArrayOf(attr))
+        val color = typedArray.getColor(0, android.graphics.Color.BLACK)
+        typedArray.recycle()
+        return color
+    }
+}

@@ -1,0 +1,415 @@
+package eu.darken.capod.pods.core.apple.ble.devices
+
+import eu.darken.capod.common.bluetooth.BleScanResult
+import eu.darken.capod.pods.core.apple.ble.BlePodSnapshot
+import eu.darken.capod.pods.core.apple.ble.devices.airpods.AirPodsPro
+import eu.darken.capod.pods.core.apple.ble.devices.airpods.HasStateDetectionAirPods
+import eu.darken.capod.pods.core.apple.ble.history.KnownDevice
+import eu.darken.capod.pods.core.apple.ble.protocol.ProximityPayload
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Test
+import java.time.Instant
+
+class DualApplePodsTest : BaseBlePodsTest() {
+
+    @Test
+    fun `test bit mapping`() = runTest {
+        create<DualApplePods>("07 19 01 0E 20 54 AA B5 31 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4") {
+
+            pubPrefix shouldBe 0x01.toUByte()
+            pubDeviceModel shouldBe 0x0e20.toUShort()
+            pubStatus shouldBe 0x54.toUByte()
+            pubPodsBattery shouldBe 0xAA.toUByte()
+            pubFlags shouldBe 0xB.toUShort()
+            pubCaseBattery shouldBe 0x5.toUShort()
+            pubCaseLidState shouldBe 0x31.toUByte()
+            pubDeviceColor shouldBe 0x00.toUByte()
+            pubSuffix shouldBe 0x00.toUByte()
+        }
+    }
+
+    @Test
+    fun `test AirPodDevice - active microphone`() = runTest {
+        create<DualApplePods>("07 19 01 0E 20 >2B< AA B5 31 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4") {
+            // 00101011
+            // --^-----
+            isLeftPodMicrophone shouldBe true
+            isRightPodMicrophone shouldBe false
+        }
+        create<DualApplePods>("07 19 01 0E 20 >0B< AA B5 31 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4") {
+            // 00001011
+            // --^-----
+            isLeftPodMicrophone shouldBe false
+            isRightPodMicrophone shouldBe true
+        }
+    }
+
+    @Test
+    fun `test AirPodDevice - left pod ear status`() = runTest {
+        // Left Pod primary
+        create<DualApplePods>("07 19 01 0E 20 >22< AA B5 31 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4") {
+            // 00100010
+            // 765432¹0
+            isLeftPodInEar shouldBe true
+        }
+        create<DualApplePods>("07 19 01 0E 20 >20< AA B5 31 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4") {
+            // 00100000
+            // 765432¹0
+            isLeftPodInEar shouldBe false
+        }
+
+        // Right Pod is primary
+        create<DualApplePods>("07 19 01 0E 20 >09< AA B5 31 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4") {
+            // 00001001
+            // 7654³210
+            isLeftPodInEar shouldBe true
+        }
+        create<DualApplePods>("07 19 01 0E 20 >20< AA B5 31 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4") {
+            // 00000001
+            // 7654³210
+            isLeftPodInEar shouldBe false
+        }
+    }
+
+    @Test
+    fun `test AirPodDevice - right pod ear status`() = runTest {
+        // Left Pod primary
+        create<DualApplePods>("07 19 01 0E 20 >29< AA B5 31 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4") {
+            // 00101001
+            // 7654³210
+            isRightPodInEar shouldBe true
+        }
+        create<DualApplePods>("07 19 01 0E 20 >21< AA B5 31 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4") {
+            // 00100001
+            // 7654³210
+            isRightPodInEar shouldBe false
+        }
+
+        // Right Pod is primary
+        create<DualApplePods>("07 19 01 0E 20 >03< AA B5 31 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4") {
+            // 00000011
+            // 765432¹0
+            isRightPodInEar shouldBe true
+        }
+        create<DualApplePods>("07 19 01 0E 20 >01< AA B5 31 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4") {
+            // 00000001
+            // 765432¹0
+            isRightPodInEar shouldBe false
+        }
+    }
+
+    @Test
+    fun `test AirPodDevice - battery status`() = runTest {
+        // Right Pod is primary
+        create<DualApplePods>("07 19 01 0E 20 0B >98< 94 52 00 05 09 73 3C 3D F9 2C 3E B3 DD 76 02 DD 4E 16 FD FB") {
+            // 88 10001000
+            batteryLeftPodPercent shouldBe 0.9f
+            batteryRightPodPercent shouldBe 0.8f
+        }
+        // Left Pod primary
+        create<DualApplePods>("07 19 01 0E 20 2B >89< 94 52 00 05 09 73 3C 3D F9 2C 3E B3 DD 76 02 DD 4E 16 FD FB") {
+            // F8 11111000
+            batteryLeftPodPercent shouldBe 0.9f
+            batteryRightPodPercent shouldBe 0.8f
+        }
+    }
+
+    @Test
+    fun `test AirPodDevice - pod charging`() = runTest {
+        /**
+         * Right pod is charging
+         */
+        // This is the left
+        create<DualApplePods>("07 19 01 0E 20 51 89 >94< 52 00 00 F4 89 82 6D 3E 27 7F 26 62 57 D0 E2 A6 49 E9 35") {
+            // 1001 0100
+            isLeftPodCharging shouldBe false
+            isRightPodCharging shouldBe true
+        }
+        // This is the right
+        create<DualApplePods>("07 19 01 0E 20 31 98 >A4< 01 00 00 31 B9 A0 C4 80 CD D1 CF B9 3A 9A 6D 48 31 08 EB") {
+            // 1010 0100
+            isLeftPodCharging shouldBe false
+            isRightPodCharging shouldBe true
+        }
+
+        /**
+         * Left pod is charging
+         */
+        // This is the left
+        create<DualApplePods>("07 19 01 0E 20 71 98 >94< 52 00 05 A5 37 31 B2 BD 42 68 0C 64 FD 00 99 4A E5 3E F4") {
+            // 1001 0100
+            isLeftPodCharging shouldBe true
+            isRightPodCharging shouldBe false
+        }
+        // This is the right
+        create<DualApplePods>("07 19 01 0E 20 11 89 >A4< 04 00 04 BA 79 1B C0 65 69 C6 9F 19 6E 37 7D 6D 86 8D D9") {
+            // 1010 0100
+            isLeftPodCharging shouldBe true
+            isRightPodCharging shouldBe false
+        }
+
+        // Both charging
+        create<DualApplePods>("07 19 01 0E 20 55 88 >B4< 59 00 05 4B FC DF 68 28 A5 45 52 65 9C FE 51 86 3A B5 DB") {
+            // 1011 0100
+            isLeftPodCharging shouldBe true
+            isRightPodCharging shouldBe true
+        }
+        // Both not charging
+        create<DualApplePods>("07 19 01 0E 20 00 F8 >8F< 03 00 05 4C 0F A0 C4 05 24 DD EB AF 92 99 FD 54 B1 06 48") {
+            // 1000 1111
+            isLeftPodCharging shouldBe false
+            isRightPodCharging shouldBe false
+        }
+    }
+
+    @Test
+    fun `test AirPodDevice - case charging`() = runTest {
+        create<DualApplePods>("07 19 01 0E 20 75 99 >B4< 31 00 05 77 C8 BA 0C 4E 1F BE AD 70 C5 40 71 D2 E9 17 A2") {
+            // 0011 0011
+            isCaseCharging shouldBe false
+        }
+        create<DualApplePods>("07 19 01 0E 20 75 A9 >F4< 51 00 05 A0 37 92 35 49 79 CC DC 27 94 8E FB 72 12 94 52") {
+            // 0101 0011
+            isCaseCharging shouldBe true
+        }
+    }
+
+    @Test
+    fun `test AirPodDevice - case lid test`() = runTest {
+        // Lid open
+        create<DualApplePods>("07 19 01 0E 20 55 AA B4 >31< 00 00 A1 D0 BD 82 D3 52 86 CA FC 11 62 DC 42 C6 92 8E") {
+            // 31 0011 0001
+            caseLidState shouldBe DualApplePods.LidState.OPEN
+        }
+        // Lid open, left pod in case
+        create<DualApplePods>("07 19 01 0E 20 51 9A 93 >31< 00 00 95 D0 A5 D7 E3 F4 F1 38 38 99 61 3B 57 95 37 B7") {
+            // 31 0011 0001
+            caseLidState shouldBe DualApplePods.LidState.OPEN
+        }
+        // Lid open, left pod in case
+        create<DualApplePods>("07 19 01 0E 20 71 A9 92 31 00 00 DB 48 7F 32 8C CE 80 6F D9 27 98 D6 76 45 9D 62") {
+            // 31 0011 0001
+            caseLidState shouldBe DualApplePods.LidState.OPEN
+        }
+
+
+        // Lid just closed
+        create<DualApplePods>("07 19 01 0E 20 55 AA B4 >39< 00 00 08 A6 DB 99 E0 5E 14 85 E5 C2 0B 68 D7 FF C3 A1") {
+            // 39 0011 1001
+            caseLidState shouldBe DualApplePods.LidState.CLOSED
+        }
+        // Lid closed
+        create<DualApplePods>("07 19 01 0E 20 55 AA B4 38 00 00 F3 F7 08 3B 98 09 C0 DD E4 BD BD 84 55 56 8B 81") {
+            // 38 0011 1000
+            caseLidState shouldBe DualApplePods.LidState.CLOSED
+        }
+        // Lid closed, right pod in case
+        create<DualApplePods>("07 19 01 0E 20 51 9A 93 >38< 00 00 3A D8 85 76 B0 91 48 31 DA FF 6C 4A 2B C2 67 F4") {
+            // 38 0011 1000
+            caseLidState shouldBe DualApplePods.LidState.CLOSED
+        }
+        // Lid closed, left pod in case
+        create<DualApplePods>("07 19 01 0E 20 71 A9 92 38 00 00 44 91 C4 8B 85 98 DD 55 4E 6A CA BC B5 CA 8D 37") {
+            // 38 0011 1000
+            caseLidState shouldBe DualApplePods.LidState.CLOSED
+        }
+    }
+
+    private fun directAirPodsPro(status: Int) = directAirPodsPro(status, 0x31)
+
+    private fun directAirPodsPro(
+        status: Int,
+        rawCaseLidState: Int,
+    ) = AirPodsPro(
+        scanResult = BleScanResult(
+            receivedAt = Instant.parse("2026-01-01T00:00:00Z"),
+            address = "77:49:4C:D8:25:0C",
+            rssi = -66,
+            generatedAtNanos = 136136027721826,
+            manufacturerSpecificData = mutableMapOf(),
+        ),
+        payload = ProximityPayload(
+            public = ProximityPayload.Public(
+                ubyteArrayOf(
+                    0x01u,
+                    0x0Eu,
+                    0x20u,
+                    status.toUByte(),
+                    0x89u,
+                    0xB3u,
+                    rawCaseLidState.toUByte(),
+                    0x00u,
+                    0x00u,
+                )
+            ),
+            private = null,
+        ),
+        meta = ApplePods.AppleMeta(),
+    )
+
+    @Test
+    fun `test AirPodDevice - case lid uses status derived case context`() {
+        // bit4 only = one pod in case, broadcast by the OUT-of-case pod. Its lid byte is stale and
+        // decodes to a phantom OPEN even when the case is shut, so it must report UNKNOWN (#598).
+        directAirPodsPro(status = 0x10, rawCaseLidState = 0x51).caseLidState shouldBe DualApplePods.LidState.UNKNOWN
+        // bit2 = both pods in case → lid byte is trustworthy.
+        directAirPodsPro(status = 0x04, rawCaseLidState = 0x5A).caseLidState shouldBe DualApplePods.LidState.CLOSED
+        // bit6 = this (broadcasting) pod is in the case → lid byte is trustworthy.
+        directAirPodsPro(status = 0x40, rawCaseLidState = 0x51).caseLidState shouldBe DualApplePods.LidState.OPEN
+        // No case context at all → NOT_IN_CASE.
+        directAirPodsPro(status = 0x2B, rawCaseLidState = 0x11).caseLidState shouldBe DualApplePods.LidState.NOT_IN_CASE
+        directAirPodsPro(status = 0x20, rawCaseLidState = 0x5A).caseLidState shouldBe DualApplePods.LidState.NOT_IN_CASE
+    }
+
+    @Test
+    fun `case lid - out-of-case pod frame reports UNKNOWN, not a phantom OPEN (issue 598)`() {
+        // Real captures while the case is physically shut with one pod removed. The in-case pod
+        // reports CLOSED; the out-of-case (bit4-only) pod carries a stale lid byte that the old
+        // decoder turned into a phantom OPEN. It must now be UNKNOWN.
+        // AirPods Pro 3:
+        directAirPodsPro(status = 0x73, rawCaseLidState = 0x39).caseLidState shouldBe DualApplePods.LidState.CLOSED
+        directAirPodsPro(status = 0x13, rawCaseLidState = 0x11).caseLidState shouldBe DualApplePods.LidState.UNKNOWN
+        // AirPods Pro 1:
+        directAirPodsPro(status = 0x53, rawCaseLidState = 0x39).caseLidState shouldBe DualApplePods.LidState.CLOSED
+        directAirPodsPro(status = 0x33, rawCaseLidState = 0x02).caseLidState shouldBe DualApplePods.LidState.UNKNOWN
+        // Both pods in the case (bit2) stays trustworthy even without bit6 (Pro 3 0x15, Pro 1 0x04).
+        directAirPodsPro(status = 0x15, rawCaseLidState = 0x31).caseLidState shouldBe DualApplePods.LidState.OPEN
+        directAirPodsPro(status = 0x04, rawCaseLidState = 0x31).caseLidState shouldBe DualApplePods.LidState.OPEN
+    }
+
+    private fun knownDeviceOf(vararg pods: AirPodsPro): KnownDevice {
+        val id = pods.first().identifier
+        return KnownDevice(
+            id = id,
+            seenFirstAt = pods.first().seenFirstAt,
+            seenCounter = pods.size,
+            history = pods.toList(),
+            lastCaseBattery = null,
+        )
+    }
+
+    private val testFactory = object : ApplePodsFactory {
+        override fun isResponsible(message: eu.darken.capod.pods.core.apple.ble.protocol.ProximityMessage) = false
+        override suspend fun create(
+            scanResult: BleScanResult,
+            payload: ProximityPayload,
+            meta: ApplePods.AppleMeta,
+        ): ApplePods = throw UnsupportedOperationException()
+    }
+
+    @Test
+    fun `getLatestCaseLidState - desk pod defers to case-context history`() {
+        val sharedId = BlePodSnapshot.Id()
+        // Pod in case: status=0x55 has bits 2,4,6 set → hasCaseContext=true, lid=OPEN
+        val casePod = directAirPodsPro(status = 0x55, rawCaseLidState = 0x31).copy(identifier = sharedId)
+        // Pod on desk: status=0x20 has no case bits → hasCaseContext=false → NOT_IN_CASE
+        val deskPod = directAirPodsPro(status = 0x20, rawCaseLidState = 0x31).copy(identifier = sharedId)
+
+        val known = knownDeviceOf(casePod, deskPod)
+        val result = with(testFactory) { known.getLatestCaseLidState(deskPod) }
+
+        result shouldBe DualApplePods.LidState.OPEN
+    }
+
+    @Test
+    fun `getLatestCaseLidState - case pod is authoritative`() {
+        val sharedId = BlePodSnapshot.Id()
+        val deskPod = directAirPodsPro(status = 0x20, rawCaseLidState = 0x31).copy(identifier = sharedId)
+        val casePod = directAirPodsPro(status = 0x55, rawCaseLidState = 0x39).copy(identifier = sharedId)
+
+        val known = knownDeviceOf(deskPod, casePod)
+        val result = with(testFactory) { known.getLatestCaseLidState(casePod) }
+
+        result shouldBe DualApplePods.LidState.CLOSED
+    }
+
+    @Test
+    fun `getLatestCaseLidState - no case context in history returns NOT_IN_CASE`() {
+        val sharedId = BlePodSnapshot.Id()
+        val deskPod1 = directAirPodsPro(status = 0x20, rawCaseLidState = 0x31).copy(identifier = sharedId)
+        val deskPod2 = directAirPodsPro(status = 0x20, rawCaseLidState = 0x31).copy(identifier = sharedId)
+
+        val known = knownDeviceOf(deskPod1, deskPod2)
+        val result = with(testFactory) { known.getLatestCaseLidState(deskPod2) }
+
+        result shouldBe DualApplePods.LidState.NOT_IN_CASE
+    }
+
+    @Test
+    fun `getLatestCaseLidState - phantom out-of-case frame recovers CLOSED from in-case history (issue 598)`() {
+        val sharedId = BlePodSnapshot.Id()
+        // In-case pod reports the real, shut lid; out-of-case pod's bit4-only frame is UNKNOWN.
+        val inCaseClosed = directAirPodsPro(status = 0x73, rawCaseLidState = 0x39).copy(identifier = sharedId)
+        val outOfCasePhantom = directAirPodsPro(status = 0x13, rawCaseLidState = 0x11).copy(identifier = sharedId)
+
+        val known = knownDeviceOf(inCaseClosed, outOfCasePhantom)
+        val result = with(testFactory) { known.getLatestCaseLidState(outOfCasePhantom) }
+
+        // Must recover CLOSED from the in-case broadcast, not surface the phantom OPEN.
+        result shouldBe DualApplePods.LidState.CLOSED
+    }
+
+    @Test
+    fun `getLatestCaseLidState - only out-of-case frames never report a phantom OPEN (issue 598)`() {
+        val sharedId = BlePodSnapshot.Id()
+        val phantom1 = directAirPodsPro(status = 0x13, rawCaseLidState = 0x11).copy(identifier = sharedId)
+        val phantom2 = directAirPodsPro(status = 0x13, rawCaseLidState = 0x11).copy(identifier = sharedId)
+
+        val known = knownDeviceOf(phantom1, phantom2)
+        val result = with(testFactory) { known.getLatestCaseLidState(phantom2) }
+
+        // No authoritative reading anywhere → fall back to a coarse signal, never a guessed OPEN.
+        result shouldBe DualApplePods.LidState.NOT_IN_CASE
+    }
+
+    @Test
+    fun `case lid - first-seen out-of-case frame does not leak a phantom OPEN through the factory (issue 598)`() = runTest {
+        // Going through the real factory, a bit4-only out-of-case frame must never surface a phantom
+        // OPEN. The exact non-OPEN value depends on whether the device already has history
+        // (UNKNOWN when first-seen, NOT_IN_CASE once a single phantom frame is in history) — both are
+        // acceptable; what matters is that it is never OPEN.
+        create<DualApplePods>(
+            hex = "07 19 01 0E 20 13 AA B5 11 00 00 E0 0C A7 8A 60 4B D3 7D F4 60 4F 2C 73 E9 A7 F4",
+            address = "AA:BB:CC:DD:EE:01",
+        ) {
+            caseLidState shouldNotBe DualApplePods.LidState.OPEN
+        }
+    }
+
+    @Test
+    fun `test AirPodDevice - connection state`() = runTest {
+        // Disconnected
+        create<HasStateDetectionAirPods>("07 19 01 0E 20 2B AA 8F 01 00 >00< 62 D4 BB F1 A7 F8 64 98 D2 C8 BD 7B 3A EF 2E 15") {
+            // 31 0011 0001
+            state shouldBe HasStateDetectionAirPods.ConnectionState.DISCONNECTED
+        }
+        // Connected idle
+        create<HasStateDetectionAirPods>("07 19 01 0E 20 2B AA 8F 01 00 >04< 1D 69 69 9C C2 51 F3 1F BF 6E 45 DA 90 4A A3 E3") {
+            // 39 0011 1001
+            state shouldBe HasStateDetectionAirPods.ConnectionState.IDLE
+        }
+        // Connected and playing music
+        create<HasStateDetectionAirPods>("07 19 01 0E 20 2B A9 8F 01 00 >05< 14 F7 CB 49 9F D3 B3 22 77 D2 22 F1 74 8C AC A6") {
+            // 38 0011 1000
+            state shouldBe HasStateDetectionAirPods.ConnectionState.MUSIC
+        }
+        // Connected and call active
+        create<HasStateDetectionAirPods>("07 19 01 0E 20 2B 99 8F 01 00 >06< 0F 4B 43 25 E0 4A 73 63 14 22 C2 3C 89 13 BD 97") {
+            // 38 0011 1000
+            state shouldBe HasStateDetectionAirPods.ConnectionState.CALL
+        }
+        // Connected and call active
+        create<HasStateDetectionAirPods>("07 19 01 0E 20 2B 99 8F 01 00 >07< E7 DF 76 44 85 B5 30 F4 95 14 02 DC A1 A4 8A 09") {
+            // 38 0011 1000
+            state shouldBe HasStateDetectionAirPods.ConnectionState.RINGING
+        }
+        // Switching?
+        create<HasStateDetectionAirPods>("07 19 01 0E 20 2B 99 8F 01 00 >09< 10 30 EE F3 41 B5 D8 9F A3 B0 B4 17 9F 85 97 5F") {
+            // 38 0011 1000
+            state shouldBe HasStateDetectionAirPods.ConnectionState.HANGING_UP
+        }
+    }
+
+}

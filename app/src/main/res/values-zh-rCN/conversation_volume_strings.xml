@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_conversation_volume_mode_label">音量降低方式</string>
+    <string name="settings_conversation_volume_mode_relative">按当前音量降低</string>
+    <string name="settings_conversation_volume_mode_absolute">降至固定目标</string>
+    <string name="settings_conversation_volume_target_label">目标音量</string>
+    <string name="settings_conversation_volume_target_description">按最大音量的百分比设置。当前音量低于目标时保持不变；对话结束后恢复原音量。</string>
+</resources>

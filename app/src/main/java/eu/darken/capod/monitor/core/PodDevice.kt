@@ -1,0 +1,447 @@
+package eu.darken.capod.monitor.core
+
+import android.content.Context
+import androidx.compose.runtime.Stable
+import eu.darken.capod.R
+import eu.darken.capod.common.SystemTimeSource
+import eu.darken.capod.common.bluetooth.BluetoothAddress
+import eu.darken.capod.monitor.core.cache.CachedDeviceState
+import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.aap.AapPodState
+import eu.darken.capod.pods.core.apple.aap.protocol.AapDeviceInfo
+import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
+import eu.darken.capod.pods.core.apple.ble.BATTERY_UNKNOWN
+import eu.darken.capod.pods.core.apple.ble.BlePodSnapshot
+import eu.darken.capod.pods.core.apple.ble.DualBlePodSnapshot
+import eu.darken.capod.pods.core.apple.ble.SingleBlePodSnapshot
+import eu.darken.capod.pods.core.apple.ble.devices.ApplePods
+import eu.darken.capod.pods.core.apple.ble.devices.DualApplePods
+import eu.darken.capod.pods.core.apple.ble.devices.HasCase
+import eu.darken.capod.pods.core.apple.ble.devices.HasChargeDetection
+import eu.darken.capod.pods.core.apple.ble.devices.HasChargeDetectionDual
+import eu.darken.capod.pods.core.apple.ble.devices.HasDualMicrophone
+import eu.darken.capod.pods.core.apple.ble.devices.HasEarDetection
+import eu.darken.capod.pods.core.apple.ble.devices.HasEarDetectionDual
+import eu.darken.capod.profiles.core.ReactionConfig
+import java.time.Duration
+import java.time.Instant
+
+/**
+ * Unified device facade combining BLE scan data and AAP connection data.
+ * All properties are dynamically resolved from the best available source.
+ * Consumers don't need to know whether data came from BLE or AAP.
+ */
+@Stable
+data class PodDevice(
+    val profileId: String?,
+    val label: String? = null,
+    internal val ble: BlePodSnapshot?,
+    internal val aap: AapPodState?,
+    internal val cached: CachedDeviceState? = null,
+    /** Bonded BR/EDR address from the profile — current source of truth, preferred over cache snapshot. */
+    internal val profileAddress: BluetoothAddress? = null,
+    /** Pod model from the profile — current source of truth, preferred over cache snapshot. */
+    internal val profileModel: PodModel? = null,
+    /**
+     * Key state derived from the profile's stored IRK/ENC. Used as the source of truth for the
+     * badge icons when the device is live — per-scan IRK matching would otherwise evaporate
+     * every time the BLE scanner misses the next advertisement batch.
+     */
+    internal val profileKeyState: BleKeyState = BleKeyState.NONE,
+    /**
+     * Last-known AllowOffOption value persisted on the profile. Used as a fallback when the
+     * live AAP state has no AllowOffOption setting (fresh session, device not pushing 0x34).
+     */
+    internal val profileLearnedAllowOffEnabled: Boolean? = null,
+    /**
+     * Last-known ListeningModeCycle mask persisted on the profile. Used as a fallback when
+     * the live AAP state has no ListeningModeCycle setting (device never echoes 0x1A back).
+     */
+    internal val profileLastRequestedListeningModeCycleMask: Int? = null,
+    /** Reaction toggle snapshot from the profile. Defaults to all-off when no profile is matched. */
+    val reactions: ReactionConfig = ReactionConfig(),
+    /** Whether the dashboard battery time-remaining estimate is enabled for this device (per-profile). */
+    val batteryEstimateEnabled: Boolean = true,
+    /** True when the profile's BR/EDR address is in the system's connected Bluetooth devices. */
+    val isSystemConnected: Boolean = false,
+) {
+    /**
+     * A profile's model is never null — it defaults to [PodModel.UNKNOWN] — so a profile that never
+     * learned a model would otherwise mask a perfectly good model sitting in the cache, and
+     * everything downstream ([hasCase], [hasDualPods], [hasEarDetection], the notification layout,
+     * the widget) would degrade to the unknown-device shape for the device's whole lifetime.
+     *
+     * Only the profile step skips UNKNOWN. A live snapshot reporting UNKNOWN is a real decoder
+     * result for an unrecognised model, not a missing answer, and must stay authoritative — its
+     * label says "Unknown device", so overriding it with a stale profile/cache model would pair a
+     * known-model layout with an unknown-model label.
+     */
+    val model: PodModel
+        get() = ble?.model
+            ?: profileModel?.takeUnless { it == PodModel.UNKNOWN }
+            ?: cached?.model
+            ?: PodModel.UNKNOWN
+    /** Bonded BR/EDR address (from profile). Used for AAP commands. */
+    val address: BluetoothAddress? get() = ble?.meta?.profile?.address ?: profileAddress ?: cached?.address
+    /**
+     * True when the matched profile has a selected paired Bluetooth device. Unlike [address],
+     * this never falls back to the cache, so a profile whose paired device was removed still
+     * reports `false` even while a stale cached address lingers.
+     */
+    val hasSelectedPairedDevice: Boolean
+        get() = (ble?.meta?.profile?.address ?: profileAddress) != null
+    /** BLE scan address (RPA, rotates). */
+    val bleAddress: BluetoothAddress? get() = ble?.address
+    val identifier: BlePodSnapshot.Id? get() = ble?.identifier
+
+    /** True when at least one live data source (BLE or AAP) is present. */
+    val isLive: Boolean get() = ble != null || aap != null
+
+    // Capabilities from Model.Features
+    val hasCase: Boolean get() = model.features.hasCase
+    val hasDualPods: Boolean get() = model.features.hasDualPods
+    val hasEarDetection: Boolean get() = model.features.hasEarDetection
+    val hasAncControl: Boolean get() = model.features.hasAncControl
+    val hasDualMicrophone: Boolean get() = ble is HasDualMicrophone
+    val hasDynamicEndOfCharge: Boolean get() = model.features.hasDynamicEndOfCharge
+
+    // Signal / timing
+    val seenLastAt: Instant?
+        get() = listOfNotNull(ble?.seenLastAt, aap?.lastMessageAt, cached?.lastSeenAt).maxOrNull()
+    val seenFirstAt: Instant? get() = ble?.seenFirstAt
+    val signalQuality: Float
+        get() {
+            val bleQuality = ble?.signalQuality ?: 0f
+            return (bleQuality + computeAapBoost(SystemTimeSource.now())).coerceAtMost(1f)
+        }
+
+    /**
+     * Quality value for the signal bar display. Prefers live BLE RSSI; when BLE is absent
+     * (common for a device that's actively connected to us via classic BT — we stop receiving
+     * its BLE advertisements), falls back to a full-bars constant as long as AAP is READY.
+     *
+     * Note: we don't try to graduate this off AAP message age. The AirPods only push messages
+     * on state changes (battery %, ear detection, setting toggles, user taps). A user quietly
+     * listening to music can go minutes without any AAP traffic, which is still a perfectly
+     * healthy connection. A quiet channel is not a weak channel.
+     */
+    val rssiQuality: Float
+        get() {
+            ble?.rssiQuality?.let { return it }
+            val state = aap ?: return 0f
+            return if (state.connectionState == AapPodState.ConnectionState.READY) 1.0f else 0f
+        }
+
+    val rssi: Int get() = ble?.rssi ?: 0
+
+    /** Snapshot of connection-related state for badges and bars. */
+    val connectionState: ConnectionState
+        get() = ConnectionState(
+            hasBleData = ble != null,
+            bleKeyState = bleKeyState,
+            isAapConnected = isAapConnected,
+            rssiQuality = rssiQuality,
+        )
+
+    internal fun computeAapBoost(now: Instant): Float {
+        val state = aap ?: return 0f
+        if (state.connectionState != AapPodState.ConnectionState.READY) return 0.05f
+        val lastMessage = state.lastMessageAt ?: return 0.05f
+        val ageSeconds = Duration.between(lastMessage, now).seconds
+        return when {
+            ageSeconds < 0 -> 0.05f   // future timestamp (defensive)
+            ageSeconds < 10 -> 0.15f  // fresh
+            ageSeconds < 30 -> 0.10f  // warm
+            else -> 0.05f             // stale
+        }
+    }
+
+    // Battery — AAP preferred, BLE fallback, then cached. Returns BATTERY_UNKNOWN (-1f)
+    // for unknown to keep the type primitive; this is the boundary that previously emitted
+    // Float? and triggered Android 10 ART JIT crashes via R8-merged unbox call sites.
+    val batteryLeft: Float
+        get() = aap?.batteryLeft ?: (ble as? DualBlePodSnapshot)?.batteryLeftPodPercent
+            ?: cached?.left?.percent ?: BATTERY_UNKNOWN
+
+    val batteryRight: Float
+        get() = aap?.batteryRight ?: (ble as? DualBlePodSnapshot)?.batteryRightPodPercent
+            ?: cached?.right?.percent ?: BATTERY_UNKNOWN
+
+    val batteryCase: Float
+        get() = aap?.batteryCase ?: (ble as? HasCase)?.batteryCasePercent
+            ?: cached?.case?.percent ?: BATTERY_UNKNOWN
+
+    val batteryHeadset: Float
+        get() = aap?.batteryHeadset ?: (ble as? SingleBlePodSnapshot)?.batteryHeadsetPercent
+            ?: cached?.headset?.percent ?: BATTERY_UNKNOWN
+
+    /** True when at least one displayed battery value was filled from cache (not live). */
+    val isBatteryCached: Boolean
+        get() {
+            if (cached == null) return false
+            val usedLeft = aap?.batteryLeft == null && (ble as? DualBlePodSnapshot)?.batteryLeftPodPercent == null && cached.left != null
+            val usedRight = aap?.batteryRight == null && (ble as? DualBlePodSnapshot)?.batteryRightPodPercent == null && cached.right != null
+            val usedCase = aap?.batteryCase == null && (ble as? HasCase)?.batteryCasePercent == null && cached.case != null
+            val usedHeadset = aap?.batteryHeadset == null && (ble as? SingleBlePodSnapshot)?.batteryHeadsetPercent == null && cached.headset != null
+            return usedLeft || usedRight || usedCase || usedHeadset
+        }
+
+    /** Oldest per-slot timestamp among battery values that fell through to cache. Null if all live. */
+    val cachedBatteryAt: Instant?
+        get() {
+            if (cached == null) return null
+            return listOfNotNull(
+                cached.left?.updatedAt.takeIf { aap?.batteryLeft == null && (ble as? DualBlePodSnapshot)?.batteryLeftPodPercent == null },
+                cached.right?.updatedAt.takeIf { aap?.batteryRight == null && (ble as? DualBlePodSnapshot)?.batteryRightPodPercent == null },
+                cached.case?.updatedAt.takeIf { aap?.batteryCase == null && (ble as? HasCase)?.batteryCasePercent == null },
+                cached.headset?.updatedAt.takeIf { aap?.batteryHeadset == null && (ble as? SingleBlePodSnapshot)?.batteryHeadsetPercent == null },
+            ).minOrNull()
+        }
+
+    // Charging — AAP preferred, BLE fallback, then cached. The cached fallback only applies while
+    // the device is live (connected): charging is a real-time claim ("power is flowing now") that
+    // we can't stand behind once the device is out of range, so we suppress it after full
+    // disconnect rather than showing a frozen charging state on the dimmed "cached N ago" card.
+    // The raw charging bits are still persisted in `cached` for callers that want the last-known
+    // value directly (device.cached?.is…Charging).
+    val isLeftPodCharging: Boolean?
+        get() = aap?.isLeftCharging ?: (ble as? HasChargeDetectionDual)?.isLeftPodCharging ?: cached?.isLeftCharging?.takeIf { isLive }
+
+    val isRightPodCharging: Boolean?
+        get() = aap?.isRightCharging ?: (ble as? HasChargeDetectionDual)?.isRightPodCharging ?: cached?.isRightCharging?.takeIf { isLive }
+
+    val isCaseCharging: Boolean?
+        get() = aap?.isCaseCharging ?: (ble as? HasCase)?.isCaseCharging ?: cached?.isCaseCharging?.takeIf { isLive }
+
+    val isHeadsetBeingCharged: Boolean?
+        get() = aap?.isHeadsetCharging ?: (ble as? HasChargeDetection)?.isHeadsetBeingCharged ?: cached?.isHeadsetCharging?.takeIf { isLive }
+
+    // Full per-slot charging state — AAP only (BLE + cache don't carry CHARGING_OPTIMIZED).
+    // Null means "no live AAP reading", which lets callers avoid showing a stale Optimized chip
+    // after the device went out of range. Existing isLeftCharging/etc. remain the Boolean
+    // collapse of CHARGING + CHARGING_OPTIMIZED for everyone who just cares "is it charging".
+    val leftPodChargingState: AapPodState.ChargingState? get() = aap?.leftChargingState
+    val rightPodChargingState: AapPodState.ChargingState? get() = aap?.rightChargingState
+    val caseChargingState: AapPodState.ChargingState? get() = aap?.caseChargingState
+    val headsetChargingState: AapPodState.ChargingState? get() = aap?.headsetChargingState
+
+    // Resolved primary pod: AAP cmd 0x08 preferred, BLE bit 5 fallback.
+    private val resolvedPrimaryPod: DualBlePodSnapshot.Pod?
+        get() = aap?.aapPrimaryPod?.pod?.let { aapPod ->
+            when (aapPod) {
+                AapSetting.PrimaryPod.Pod.LEFT -> DualBlePodSnapshot.Pod.LEFT
+                AapSetting.PrimaryPod.Pod.RIGHT -> DualBlePodSnapshot.Pod.RIGHT
+            }
+        } ?: (ble as? DualApplePods)?.primaryPod
+
+    private fun AapSetting.EarDetection.PodPlacement.isInEar(): Boolean =
+        this == AapSetting.EarDetection.PodPlacement.IN_EAR
+
+    private fun AapSetting.EarDetection.samePlacementInEarOrNull(): Boolean? =
+        if (primaryPod == secondaryPod) primaryPod.isInEar() else null
+
+    // Ear detection — AAP preferred (lower latency), BLE fallback.
+    // AAP reports primary/secondary; resolvedPrimaryPod tells us which physical pod is primary.
+    val isLeftInEar: Boolean?
+        get() {
+            val earDetection = aap?.aapEarDetection
+            val primary = resolvedPrimaryPod
+            if (earDetection != null) {
+                if (primary != null) {
+                    return if (primary == DualBlePodSnapshot.Pod.LEFT) {
+                        earDetection.primaryPod.isInEar()
+                    } else {
+                        earDetection.secondaryPod.isInEar()
+                    }
+                }
+                earDetection.samePlacementInEarOrNull()?.let { return it }
+            }
+            return (ble as? HasEarDetectionDual)?.isLeftPodInEar
+        }
+
+    val isRightInEar: Boolean?
+        get() {
+            val earDetection = aap?.aapEarDetection
+            val primary = resolvedPrimaryPod
+            if (earDetection != null) {
+                if (primary != null) {
+                    return if (primary == DualBlePodSnapshot.Pod.RIGHT) {
+                        earDetection.primaryPod.isInEar()
+                    } else {
+                        earDetection.secondaryPod.isInEar()
+                    }
+                }
+                earDetection.samePlacementInEarOrNull()?.let { return it }
+            }
+            return (ble as? HasEarDetectionDual)?.isRightPodInEar
+        }
+
+    val isBeingWorn: Boolean?
+        get() {
+            val earDetection = aap?.aapEarDetection
+            if (earDetection != null) {
+                return earDetection.primaryPod == AapSetting.EarDetection.PodPlacement.IN_EAR
+                    && earDetection.secondaryPod == AapSetting.EarDetection.PodPlacement.IN_EAR
+            }
+            return (ble as? HasEarDetection)?.isBeingWorn
+        }
+
+    val isEitherPodInEar: Boolean?
+        get() = aap?.isEitherPodInEar ?: (ble as? HasEarDetectionDual)?.isEitherPodInEar
+
+    /**
+     * True when ear detection comes from a live AAP reading. The BLE ear-detection bits are
+     * unreliable for pods resting in the case (they report phantom "in ear" and disagree
+     * between the two pods' advertisements), so consumers that must not act on a false "worn"
+     * gate on this.
+     */
+    val hasAapEarDetection: Boolean get() = aap?.aapEarDetection != null
+
+    val caseLidState: DualApplePods.LidState?
+        get() = (ble as? DualApplePods)?.caseLidState
+
+    // Microphone — AAP preferred (from primary pod identity), BLE fallback
+    val isLeftPodMicrophone: Boolean?
+        get() {
+            aap?.aapPrimaryPod?.let { return it.pod == AapSetting.PrimaryPod.Pod.LEFT }
+            return (ble as? HasDualMicrophone)?.isLeftPodMicrophone
+        }
+
+    val isRightPodMicrophone: Boolean?
+        get() {
+            aap?.aapPrimaryPod?.let { return it.pod == AapSetting.PrimaryPod.Pod.RIGHT }
+            return (ble as? HasDualMicrophone)?.isRightPodMicrophone
+        }
+
+    // Icons / labels
+    val iconRes: Int get() = ble?.iconRes ?: model.iconRes
+
+    val leftPodIcon: Int
+        get() = (ble as? DualBlePodSnapshot)?.leftPodIcon
+            ?: model.leftPodIconRes
+            ?: R.drawable.device_airpods_gen1_left
+
+    val rightPodIcon: Int
+        get() = (ble as? DualBlePodSnapshot)?.rightPodIcon
+            ?: model.rightPodIconRes
+            ?: R.drawable.device_airpods_gen1_right
+
+    val caseIcon: Int
+        get() = (ble as? HasCase)?.caseIcon
+            ?: model.caseIconRes
+            ?: R.drawable.device_airpods_gen1_case
+
+    fun getLabel(context: Context): String = ble?.getLabel(context) ?: model.label
+
+    // Debug
+    val rawDataHex: List<String> get() = ble?.rawDataHex ?: emptyList()
+
+    // AAP controls
+    val ancMode: AapSetting.AncMode?
+        get() = aap?.setting()
+
+    val pendingAncMode: AapSetting.AncMode.Value?
+        get() = aap?.pendingAncMode
+
+    val customEq: AapSetting.CustomEq?
+        get() = aap?.setting()
+
+    val pendingCustomEq: AapSetting.CustomEq?
+        get() = aap?.pendingCustomEq
+
+    val hasPendingSettings: Boolean?
+        get() = aap?.hasPendingSettings
+
+    val conversationalAwareness: AapSetting.ConversationalAwareness?
+        get() = aap?.setting()
+
+    val toneVolume: AapSetting.ToneVolume?
+        get() = aap?.setting()
+
+    val personalizedVolume: AapSetting.PersonalizedVolume?
+        get() = aap?.setting()
+
+    val volumeSwipe: AapSetting.VolumeSwipe?
+        get() = aap?.setting()
+
+    val ncWithOneAirPod: AapSetting.NcWithOneAirPod?
+        get() = aap?.setting()
+
+    val adaptiveAudioNoise: AapSetting.AdaptiveAudioNoise?
+        get() = aap?.setting()
+
+    val pressSpeed: AapSetting.PressSpeed?
+        get() = aap?.setting()
+
+    val pressHoldDuration: AapSetting.PressHoldDuration?
+        get() = aap?.setting()
+
+    val volumeSwipeLength: AapSetting.VolumeSwipeLength?
+        get() = aap?.setting()
+
+    val endCallMuteMic: AapSetting.EndCallMuteMic?
+        get() = aap?.setting()
+
+    val microphoneMode: AapSetting.MicrophoneMode?
+        get() = aap?.setting()
+
+    val earDetectionEnabled: AapSetting.EarDetectionEnabled?
+        get() = aap?.setting()
+
+    val listeningModeCycle: AapSetting.ListeningModeCycle?
+        get() = aap?.setting()
+            ?: profileLastRequestedListeningModeCycleMask?.let { AapSetting.ListeningModeCycle(modeMask = it) }
+
+    val allowOffOption: AapSetting.AllowOffOption?
+        get() = aap?.setting()
+            ?: profileLearnedAllowOffEnabled?.let { AapSetting.AllowOffOption(enabled = it) }
+
+    val stemConfig: AapSetting.StemConfig?
+        get() = aap?.setting()
+
+    val sleepDetection: AapSetting.SleepDetection?
+        get() = aap?.setting()
+
+    val dynamicEndOfCharge: AapSetting.DynamicEndOfCharge?
+        get() = aap?.setting()
+
+    val connectedDevices: AapSetting.ConnectedDevices?
+        get() = aap?.setting()
+
+    val audioSource: AapSetting.AudioSource?
+        get() = aap?.setting()
+
+    val pmeConfig: AapSetting.PmeConfig?
+        get() = aap?.setting()
+
+    val deviceInfo: AapDeviceInfo?
+        get() = aap?.deviceInfo ?: cached?.deviceInfo
+
+    val isAapConnected: Boolean get() = aap != null
+
+    val isAapReady: Boolean get() = aap?.connectionState == AapPodState.ConnectionState.READY
+
+    /**
+     * Badge key state for the overview card. Profile-stored keys are the source of truth while
+     * the device is live: a profile that has an IRK (and optionally ENC) keeps showing those
+     * icons whether the current scan happens to include a fresh BLE advertisement or not. For
+     * anonymous BLE pods (no profile), we still derive the state from the live scan result.
+     */
+    val bleKeyState: BleKeyState
+        get() {
+            if (!isLive) return BleKeyState.NONE
+            if (profileKeyState != BleKeyState.NONE) return profileKeyState
+            val applePod = ble as? ApplePods ?: return BleKeyState.NONE
+            if (!applePod.meta.isIRKMatch) return BleKeyState.NONE
+            return if (applePod.payload.private != null) BleKeyState.IRK_AND_ENCRYPTED else BleKeyState.IRK_ONLY
+        }
+}
+
+enum class BleKeyState { NONE, IRK_ONLY, IRK_AND_ENCRYPTED }
+
+data class ConnectionState(
+    val hasBleData: Boolean,
+    val bleKeyState: BleKeyState,
+    val isAapConnected: Boolean,
+    val rssiQuality: Float,
+)

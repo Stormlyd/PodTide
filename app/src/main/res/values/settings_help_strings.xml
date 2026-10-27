@@ -1,0 +1,14 @@
+<resources>
+    <string name="settings_background_help_title">Background running help</string>
+    <string name="settings_background_help_summary">Check Android battery and background restrictions</string>
+    <string name="settings_background_help_body">If background monitoring stops, check the system battery and background activity restrictions for PodBridge. Menu names and paths vary by phone manufacturer and Android version. The ColorOS path below is one example. PodBridge cannot read this manufacturer-specific setting. Exempting the app from Android battery optimization does not confirm that background activity is fully allowed.</string>
+    <string name="settings_background_help_path">OPPO / ColorOS example: App details → Battery usage → Fully allow background activity</string>
+    <string name="settings_background_help_open">Open app details</string>
+    <string name="settings_background_help_failure">Could not open app details.</string>
+    <string name="settings_find_airpods_title">Find AirPods</string>
+    <string name="settings_find_airpods_summary">Open Apple Find Devices in your browser</string>
+    <string name="settings_find_airpods_body">Sign in on Apple Find Devices with the Apple Account paired with your AirPods, then select them. Apple may show a current or last known location. Playing a sound in the earbuds depends on their status. The webpage cannot ring the AirPods Pro 3 charging case. Precise direction and distance require a compatible iPhone.</string>
+    <string name="settings_find_airpods_open">Open Apple Find Devices</string>
+    <string name="settings_find_airpods_failure">Could not open Apple Find Devices.</string>
+    <string name="settings_help_close">Close</string>
+</resources>

@@ -1,0 +1,26 @@
+plugins {
+    id("com.google.devtools.ksp") version "2.3.2" apply false
+}
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:9.1.0")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:${Versions.Kotlin.core}")
+        classpath("com.google.dagger:hilt-android-gradle-plugin:${Versions.Dagger.core}")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+tasks.register("clean").configure {
+    delete("build")
+}

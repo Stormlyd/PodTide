@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="press_action_voice_assistant">手机语音助手</string>
+    <string name="voice_assistant_not_configured">未找到可用语音助手，请检查系统默认数字助理设置。</string>
+    <string name="voice_assistant_blocked">系统阻止了唤起语音助手，请在前台重试。</string>
+    <string name="voice_assistant_mapping_note">语音助手使用系统默认应用。锁屏或后台唤起受手机系统限制。</string>
+</resources>

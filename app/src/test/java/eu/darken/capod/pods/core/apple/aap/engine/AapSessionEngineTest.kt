@@ -1,0 +1,1266 @@
+package eu.darken.capod.pods.core.apple.aap.engine
+
+import eu.darken.capod.common.TimeSource
+import eu.darken.capod.pods.core.apple.aap.AapPodState
+import eu.darken.capod.pods.core.apple.aap.protocol.AapCommand
+import eu.darken.capod.pods.core.apple.aap.protocol.AapDeviceProfile
+import eu.darken.capod.pods.core.apple.aap.protocol.AapMessage
+import eu.darken.capod.pods.core.apple.aap.protocol.AapMessageType
+import eu.darken.capod.pods.core.apple.aap.protocol.AapPacket
+import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
+import eu.darken.capod.pods.core.apple.aap.protocol.AapSleepEvent
+import eu.darken.capod.pods.core.apple.aap.protocol.ConversationAwarenessEvent
+import eu.darken.capod.pods.core.apple.aap.protocol.StemPressEvent
+import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.shouldBe
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+import testhelpers.BaseTest
+import java.time.Instant
+import kotlin.reflect.KClass
+
+class AapSessionEngineTest : BaseTest() {
+
+    private val timeSource = mockk<TimeSource> {
+        every { now() } returns Instant.ofEpochMilli(1000L)
+        every { currentTimeMillis() } returns 1000L
+        every { elapsedRealtime() } returns 1000L
+    }
+
+    private fun dummyMessage(commandType: Int = 0x0009): AapMessage {
+        val header = byteArrayOf(0x04, 0x00, 0x02, 0x00)
+        val cmdBytes = byteArrayOf((commandType and 0xFF).toByte(), ((commandType shr 8) and 0xFF).toByte())
+        val raw = header + cmdBytes
+        return AapMessage(raw = raw, commandType = commandType, payload = ByteArray(0))
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun settingPair(setting: AapSetting): Pair<KClass<out AapSetting>, AapSetting> =
+        setting::class as KClass<out AapSetting> to setting
+
+    /** Build a profile mock with all decode methods stubbed. Does NOT mock encodeCommand (sealed class). */
+    private fun mockProfile(block: AapDeviceProfile.() -> Unit = {}): AapDeviceProfile = mockk {
+        every { decodeStemPress(any()) } returns null
+        every { decodeBattery(any()) } returns null
+        every { decodePrivateKeyResponse(any()) } returns null
+        every { decodeDeviceInfo(any()) } returns null
+        every { decodeCaseInfo(any()) } returns null
+        every { decodeSleepEvent(any()) } returns null
+        every { decodeDynamicEndOfChargeEvent(any()) } returns null
+        every { decodeSetting(any()) } returns null
+        every { encodeHandshake() } returns ByteArray(10)
+        every { encodeNotificationEnable() } returns emptyList()
+        every { encodeInitExt() } returns ByteArray(10)
+        every { encodePrivateKeyRequest() } returns null
+        every { encodeCaseInfoRequest() } returns null
+        block()
+    }
+
+    private fun createEngine(
+        profile: AapDeviceProfile = mockProfile(),
+    ): AapSessionEngine = AapSessionEngine(profile, timeSource)
+
+    private fun AapSessionEngine.startReady(scope: TestScope) {
+        start(scope)
+        onHandshakeSent()
+        // Non-0x0009 message triggers HANDSHAKING → READY
+        processMessage(dummyMessage(commandType = 0x0002))
+    }
+
+    @Test
+    fun `buddy head report is stamped on engine receipt and old motion API remains live`() = runTest(UnconfinedTestDispatcher()) {
+        every { timeSource.elapsedRealtime() } returns 4321L
+        val engine = createEngine()
+        val samples = mutableListOf<eu.darken.capod.reaction.core.headgesture.HeadTrackingSample>()
+        val motions = mutableListOf<eu.darken.capod.reaction.core.headgesture.HeadMotion>()
+        val one = launch { engine.headSamples.collect { samples += it } }
+        val two = launch { engine.headMotion.collect { motions += it } }
+        val payload = ByteArray(58).also {
+            it[20] = 1; it[22] = 2; it[24] = 3; it[28] = 4; it[30] = 5
+        }
+        val nested = byteArrayOf(8, 16, 0x1A, 58) + payload
+        val top = byteArrayOf(0x3A, nested.size.toByte()) + nested
+        val raw = byteArrayOf(4, 0, 4, 0, 0x17, 0, 0, 0, 0x10, 0, top.size.toByte(), 0) + top
+        engine.processMessage(AapMessage(raw, AapMessageType.BUDDY_COMMAND.value, raw.copyOfRange(6, raw.size)))
+        samples.single().receivedAtMs shouldBe 4321L
+        samples.single().rotationB shouldBe 2
+        motions.single() shouldBe samples.single().motion
+        one.cancel(); two.cancel()
+    }
+
+    // ── Lifecycle ───────────────────────────────────────────
+
+    @Nested
+    inner class LifecycleTests {
+
+        @Test
+        fun `start sets CONNECTING`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+
+            engine.start(scope)
+
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.CONNECTING
+        }
+
+        @Test
+        fun `onHandshakeSent sets HANDSHAKING`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+
+            engine.start(scope)
+            engine.onHandshakeSent()
+
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.HANDSHAKING
+        }
+
+        @Test
+        fun `reset clears to DISCONNECTED`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+
+            engine.start(scope)
+            engine.onHandshakeSent()
+            engine.reset()
+
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.DISCONNECTED
+        }
+
+        @Test
+        fun `wasEverReady is false until READY then true`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+
+            engine.start(scope)
+            engine.wasEverReady shouldBe false
+            engine.onHandshakeSent()
+            engine.wasEverReady shouldBe false
+
+            // First non-CONTROL message during HANDSHAKING → READY
+            engine.processMessage(dummyMessage(commandType = 0x0002))
+            engine.wasEverReady shouldBe true
+        }
+
+        @Test
+        fun `wasEverReady survives reset`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+
+            engine.start(scope)
+            engine.onHandshakeSent()
+            engine.processMessage(dummyMessage(commandType = 0x0002))
+            engine.wasEverReady shouldBe true
+
+            engine.reset()
+
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.DISCONNECTED
+            // Consumers read this at disconnect time — reset must not clear it.
+            engine.wasEverReady shouldBe true
+        }
+
+        @Test
+        fun `reset is idempotent`() {
+            val engine = createEngine()
+
+            engine.reset()
+            engine.reset()
+
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.DISCONNECTED
+        }
+
+        @Test
+        fun `reset cancels pending runtime timers`() = runTest(UnconfinedTestDispatcher()) {
+            val supportedModes = listOf(
+                AapSetting.AncMode.Value.ON,
+                AapSetting.AncMode.Value.TRANSPARENCY,
+            )
+            var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+            val profile = mockProfile {
+                every { decodeSetting(any()) } answers { nextSetting }
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            engine.start(this as TestScope)
+            engine.onHandshakeSent()
+
+            nextSetting = settingPair(
+                AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                )
+            )
+            engine.processMessage(dummyMessage(commandType = 0x0002))
+
+            nextSetting = settingPair(
+                AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ON,
+                    supported = supportedModes,
+                )
+            )
+            engine.processMessage(dummyMessage())
+
+            nextSetting = settingPair(
+                AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.TRANSPARENCY,
+                    supported = supportedModes,
+                )
+            )
+            engine.processMessage(dummyMessage())
+
+            engine.reset()
+            advanceTimeBy(1600L)
+
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.DISCONNECTED
+            engine.state.value.setting<AapSetting.AncMode>().shouldBeNull()
+        }
+
+        @Test
+        fun `first non-0x0009 message transitions HANDSHAKING to READY`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+
+            engine.start(scope)
+            engine.onHandshakeSent()
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.HANDSHAKING
+
+            engine.processMessage(dummyMessage(commandType = 0x0002))
+
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.READY
+        }
+
+        @Test
+        fun `0x0009 message does NOT trigger READY transition`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+
+            engine.start(scope)
+            engine.onHandshakeSent()
+
+            engine.processMessage(dummyMessage(commandType = 0x0009))
+
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.HANDSHAKING
+        }
+
+        @Test
+        fun `Connect Response with status=0 stores features bitmask`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+
+            engine.start(scope)
+            engine.onHandshakeSent()
+
+            val packet = AapPacket.ConnectResponse(
+                raw = ByteArray(18),
+                service = 0x0004,
+                status = 0x0000,
+                major = 0x0001,
+                minor = 0x0003,
+                features = 0xE251_0004_E1B1_0004UL,
+            )
+            engine.processConnectResponse(packet)
+
+            engine.state.value.negotiatedFeatures shouldBe 0xE251_0004_E1B1_0004UL
+            engine.state.value.connectResponseStatus shouldBe 0
+            engine.state.value.lastMessageAt.shouldNotBeNull()
+        }
+
+        @Test
+        fun `Connect Response with non-zero status tears down the session`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+
+            engine.start(scope)
+            engine.onHandshakeSent()
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.HANDSHAKING
+
+            val packet = AapPacket.ConnectResponse(
+                raw = ByteArray(18),
+                service = 0x0004,
+                status = 0x0001,
+                major = 0x0001,
+                minor = 0x0003,
+                features = 0xFFFFFFFFFFFFFFFFUL,
+            )
+            engine.processConnectResponse(packet)
+
+            // Hard protocol rejection: fast-fail to DISCONNECTED instead of waiting out the watchdog.
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.DISCONNECTED
+            engine.state.value.negotiatedFeatures.shouldBeNull()
+        }
+    }
+
+    // ── Send path ───────────────────────────────────────────
+
+    @Nested
+    inner class SendPathTests {
+
+        @Test
+        fun `send queues when no pod in ear`() = runTest(UnconfinedTestDispatcher()) {
+            val engine = createEngine()
+            engine.startReady(this as TestScope)
+
+            // Put ear detection showing pods in case
+            val earState = engine.state.value.withSetting(
+                AapSetting.EarDetection::class,
+                AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.IN_CASE,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.IN_CASE,
+                ),
+            )
+            // We need to set the state with ear detection — do it by processing a setting message
+            val profile = mockProfile {
+                every { decodeSetting(any()) } returns (AapSetting.EarDetection::class as KClass<out AapSetting> to AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.IN_CASE,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.IN_CASE,
+                ))
+            }
+            val engineWithEar = AapSessionEngine(profile, timeSource)
+            engineWithEar.startReady(this as TestScope)
+
+            // Force ear detection into state via processMessage
+            engineWithEar.processMessage(dummyMessage())
+
+            var sendCount = 0
+            engineWithEar.send(AapCommand.SetAncMode(AapSetting.AncMode.Value.ADAPTIVE)) { sendCount++ }
+
+            sendCount shouldBe 0 // Not sent, queued
+            engineWithEar.state.value.pendingAncMode shouldBe AapSetting.AncMode.Value.ADAPTIVE
+            engineWithEar.state.value.pendingSettingsCount shouldBe 1
+        }
+
+        @Test
+        fun `send bypasses ear gate for SetDynamicEndOfCharge`() = runTest(UnconfinedTestDispatcher()) {
+            // Unlike most settings, the charge-cap toggle is used while pods sit in the
+            // closed case. Queueing it until worn would make the toggle look broken.
+            val profile = mockProfile {
+                every { decodeSetting(any()) } returns (AapSetting.EarDetection::class as KClass<out AapSetting> to AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.IN_CASE,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.IN_CASE,
+                ))
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            engine.startReady(this as TestScope)
+            engine.processMessage(dummyMessage()) // Set ear detection to IN_CASE
+
+            val sentCommands = mutableListOf<AapCommand>()
+            engine.send(AapCommand.SetDynamicEndOfCharge(false)) { sentCommands.add(it) }
+
+            sentCommands shouldBe listOf(AapCommand.SetDynamicEndOfCharge(false))
+            engine.state.value.pendingSettingsCount shouldBe 0
+        }
+
+        @Test
+        fun `send immediate when pod in ear`() = runTest(UnconfinedTestDispatcher()) {
+            val profile = mockProfile {
+                every { decodeSetting(any()) } returns (AapSetting.EarDetection::class as KClass<out AapSetting> to AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                ))
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            engine.startReady(this as TestScope)
+            engine.processMessage(dummyMessage()) // Set ear detection
+
+            var sentCommands = mutableListOf<AapCommand>()
+            engine.send(AapCommand.SetConversationalAwareness(true)) { sentCommands.add(it) }
+
+            sentCommands.size shouldBe 1
+            engine.state.value.pendingSettingsCount shouldBe 0
+        }
+
+        @Test
+        fun `flush with ANC plus later setting keeps ANC recent and verifies ANC first`() =
+            runTest(UnconfinedTestDispatcher()) {
+                val ancSetting = AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ON,
+                    supported = listOf(AapSetting.AncMode.Value.ON, AapSetting.AncMode.Value.ADAPTIVE),
+                )
+                var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+                val profile = mockProfile {
+                    every { decodeSetting(any()) } answers { nextSetting }
+                }
+                val engine = AapSessionEngine(profile, timeSource)
+                engine.startReady(this as TestScope)
+
+                nextSetting = AapSetting.EarDetection::class as KClass<out AapSetting> to AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.IN_CASE,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.IN_CASE,
+                )
+                engine.processMessage(dummyMessage())
+
+                nextSetting = AapSetting.AncMode::class as KClass<out AapSetting> to ancSetting
+                engine.processMessage(dummyMessage())
+
+                nextSetting =
+                    AapSetting.ConversationalAwareness::class as KClass<out AapSetting> to
+                            AapSetting.ConversationalAwareness(enabled = false)
+                engine.processMessage(dummyMessage())
+
+                val sentCommands = mutableListOf<AapCommand>()
+                val sendRaw: suspend (AapCommand) -> Unit = { sentCommands += it }
+
+                engine.send(AapCommand.SetAncMode(AapSetting.AncMode.Value.ADAPTIVE), sendRaw)
+                engine.send(AapCommand.SetConversationalAwareness(true), sendRaw)
+
+                engine.state.value.pendingSettingsCount shouldBe 2
+                engine.state.value.pendingAncMode shouldBe AapSetting.AncMode.Value.ADAPTIVE
+
+                nextSetting = AapSetting.EarDetection::class as KClass<out AapSetting> to AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                )
+                engine.processMessage(dummyMessage())
+                runCurrent()
+
+                sentCommands.size shouldBe 2
+                sentCommands[0] shouldBe AapCommand.SetAncMode(AapSetting.AncMode.Value.ADAPTIVE)
+                sentCommands[1] shouldBe AapCommand.SetConversationalAwareness(true)
+                engine.state.value.pendingAncMode shouldBe AapSetting.AncMode.Value.ADAPTIVE
+
+                nextSetting = AapSetting.AncMode::class as KClass<out AapSetting> to
+                        ancSetting.copy(current = AapSetting.AncMode.Value.ON)
+                engine.processMessage(dummyMessage())
+
+                // This would still be ADAPTIVE if the mixed flush path lost the ANC send marker and debounced.
+                engine.state.value.setting<AapSetting.AncMode>()!!.current shouldBe AapSetting.AncMode.Value.ON
+                engine.state.value.pendingAncMode shouldBe AapSetting.AncMode.Value.ADAPTIVE
+
+                advanceTimeBy(AapOutboundController.VERIFICATION_TIMEOUT_MS + 100L)
+
+                sentCommands.size shouldBe 3
+                sentCommands[2] shouldBe AapCommand.SetAncMode(AapSetting.AncMode.Value.ADAPTIVE)
+                engine.state.value.pendingAncMode shouldBe AapSetting.AncMode.Value.ADAPTIVE
+            }
+    }
+
+    // ── Message processing — state merge ────────────────────
+
+    @Nested
+    inner class MessageProcessingTests {
+
+        @Test
+        fun `battery decode merges into state and filters DISCONNECTED`() {
+            val profile = mockProfile {
+                every { decodeStemPress(any()) } returns null
+                every { decodeBattery(any()) } returns mapOf(
+                    AapPodState.BatteryType.LEFT to AapPodState.Battery(AapPodState.BatteryType.LEFT, 0.85f, AapPodState.ChargingState.NOT_CHARGING),
+                    AapPodState.BatteryType.CASE to AapPodState.Battery(AapPodState.BatteryType.CASE, 0f, AapPodState.ChargingState.DISCONNECTED),
+                )
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            val scope = TestScope(UnconfinedTestDispatcher())
+            engine.start(scope)
+            engine.onHandshakeSent()
+
+            engine.processMessage(dummyMessage())
+
+            engine.state.value.batteryLeft shouldBe 0.85f
+            engine.state.value.batteryCase.shouldBeNull() // DISCONNECTED filtered
+        }
+
+        @Test
+        fun `decoded battery message transitions HANDSHAKING to READY`() {
+            val profile = mockProfile {
+                every { decodeBattery(any()) } returns mapOf(
+                    AapPodState.BatteryType.LEFT to AapPodState.Battery(
+                        AapPodState.BatteryType.LEFT,
+                        0.85f,
+                        AapPodState.ChargingState.NOT_CHARGING,
+                    ),
+                )
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            val scope = TestScope(UnconfinedTestDispatcher())
+            engine.start(scope)
+            engine.onHandshakeSent()
+
+            engine.processMessage(dummyMessage(commandType = 0x0002))
+
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.READY
+            engine.state.value.batteryLeft shouldBe 0.85f
+        }
+
+        @Test
+        fun `setting decode merges into state`() {
+            val profile = mockProfile {
+                every { decodeStemPress(any()) } returns null
+                every { decodeBattery(any()) } returns null
+                every { decodePrivateKeyResponse(any()) } returns null
+                every { decodeDeviceInfo(any()) } returns null
+                every { decodeSetting(any()) } returns (AapSetting.ToneVolume::class to AapSetting.ToneVolume(level = 75))
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            val scope = TestScope(UnconfinedTestDispatcher())
+            engine.start(scope)
+            engine.onHandshakeSent()
+
+            engine.processMessage(dummyMessage(commandType = 0x0002)) // triggers READY + processes setting
+
+            engine.state.value.setting<AapSetting.ToneVolume>()!!.level shouldBe 75
+        }
+
+        private fun engineAfterSettings(vararg settings: AapSetting): AapSessionEngine {
+            val profile = mockProfile {
+                every { decodeSetting(any()) } returnsMany settings.map { settingPair(it) }
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            engine.start(TestScope(UnconfinedTestDispatcher()))
+            engine.onHandshakeSent()
+            repeat(settings.size) { engine.processMessage(dummyMessage(commandType = 0x0002)) }
+            return engine
+        }
+
+        @Test
+        fun `mirrored ear detection clears PrimaryPod`() {
+            val engine = engineAfterSettings(
+                AapSetting.PrimaryPod(AapSetting.PrimaryPod.Pod.LEFT),
+                AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                ),
+                AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                ),
+            )
+
+            engine.state.value.aapPrimaryPod.shouldBeNull()
+        }
+
+        @Test
+        fun `repeated symmetric ear detection keeps PrimaryPod`() {
+            val bothOut = AapSetting.EarDetection(
+                primaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+            )
+            val engine = engineAfterSettings(
+                AapSetting.PrimaryPod(AapSetting.PrimaryPod.Pod.LEFT),
+                bothOut,
+                bothOut,
+            )
+
+            engine.state.value.aapPrimaryPod shouldBe AapSetting.PrimaryPod(AapSetting.PrimaryPod.Pod.LEFT)
+        }
+
+        @Test
+        fun `stem press emits event`() = runTest(UnconfinedTestDispatcher()) {
+            val profile = mockProfile {
+                every { decodeStemPress(any()) } returns StemPressEvent(
+                    pressType = StemPressEvent.PressType.SINGLE,
+                    bud = StemPressEvent.Bud.LEFT,
+                )
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            engine.start(this as TestScope)
+
+            var emitted: StemPressEvent? = null
+            val job = launch {
+                emitted = engine.stemPressEvents.first()
+            }
+
+            engine.processMessage(dummyMessage())
+            job.join()
+
+            emitted.shouldNotBeNull()
+            emitted!!.pressType shouldBe StemPressEvent.PressType.SINGLE
+        }
+
+        @Test
+        fun `sleep event emits event alongside hex log`() = runTest(UnconfinedTestDispatcher()) {
+            val payload = byteArrayOf(0x01, 0x02, 0x03, 0x04)
+            val profile = mockProfile {
+                every { decodeSleepEvent(any()) } returns AapSleepEvent(rawPayload = payload)
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            engine.start(this as TestScope)
+
+            var emitted: AapSleepEvent? = null
+            val job = launch {
+                emitted = engine.sleepEvents.first()
+            }
+
+            engine.processMessage(dummyMessage(commandType = 0x0057))
+            job.join()
+
+            emitted.shouldNotBeNull()
+            emitted!!.rawPayload shouldBe payload
+        }
+    }
+
+    // ── Conversational Awareness ─────────────────────────────
+
+    @Nested
+    inner class ConversationalAwarenessTests {
+
+        private fun caProfile(status: Int) = mockProfile {
+            every { decodeSetting(any()) } returns settingPair(
+                AapSetting.ConversationalAwarenessState(
+                    speaking = status in ConversationAwarenessEvent.SPEAKING_STATUSES,
+                    rawValue = status,
+                ),
+            )
+        }
+
+        private suspend fun TestScope.firstEventFor(status: Int): ConversationAwarenessEvent {
+            val engine = AapSessionEngine(caProfile(status), timeSource)
+            engine.start(this)
+            var emitted: ConversationAwarenessEvent? = null
+            val job = launch { emitted = engine.conversationalAwarenessEvents.first() }
+            engine.processMessage(dummyMessage(commandType = 0x004B))
+            job.join()
+            return emitted!!
+        }
+
+        @Test
+        fun `status 1 and 2 emit START`() = runTest(UnconfinedTestDispatcher()) {
+            firstEventFor(1) shouldBe ConversationAwarenessEvent.START
+            firstEventFor(2) shouldBe ConversationAwarenessEvent.START
+        }
+
+        @Test
+        fun `status 5 emits RESUME`() = runTest(UnconfinedTestDispatcher()) {
+            // 5 = speech resumed after a pause (bursty talking cycles 3,5,3,5,…); NOT a terminal.
+            // Labelled captures across Pro 3 + Pro 2 USB-C show 5 only ever inside an active
+            // conversation, never ending one. Misreading it as STOP was the premature-resume bug.
+            firstEventFor(5) shouldBe ConversationAwarenessEvent.RESUME
+        }
+
+        @Test
+        fun `terminal statuses 6, 8 and 9 emit STOP`() = runTest(UnconfinedTestDispatcher()) {
+            // The usual terminal is the 8→9 pair (both pods; also emitted by pod removal / case-close).
+            // 6 is a standalone terminal seen live on Pro 2 USB-C fw …6814.
+            firstEventFor(6) shouldBe ConversationAwarenessEvent.STOP
+            firstEventFor(8) shouldBe ConversationAwarenessEvent.STOP
+            firstEventFor(9) shouldBe ConversationAwarenessEvent.STOP
+        }
+
+        @Test
+        fun `transitional and unknown statuses emit HOLD (stay engaged)`() = runTest(UnconfinedTestDispatcher()) {
+            // Must never resume immediately on these — they arm the short wind-down fuse instead.
+            // 3 = pause, 0x0B/4 = wind-down, 7 = abort; any unknown value defaults to HOLD.
+            firstEventFor(3) shouldBe ConversationAwarenessEvent.HOLD
+            firstEventFor(4) shouldBe ConversationAwarenessEvent.HOLD
+            firstEventFor(0x0B) shouldBe ConversationAwarenessEvent.HOLD
+            firstEventFor(7) shouldBe ConversationAwarenessEvent.HOLD
+            firstEventFor(0) shouldBe ConversationAwarenessEvent.HOLD
+            firstEventFor(0xFF) shouldBe ConversationAwarenessEvent.HOLD
+        }
+    }
+
+    // ── Inference ───────────────────────────────────────────
+
+    @Nested
+    inner class InferenceTests {
+
+        @Test
+        fun `startup OFF while no pod is in ear does not infer AllowOffOption true`() =
+            runTest(UnconfinedTestDispatcher()) {
+                val supportedModes = listOf(
+                    AapSetting.AncMode.Value.OFF,
+                    AapSetting.AncMode.Value.ON,
+                    AapSetting.AncMode.Value.ADAPTIVE,
+                )
+                var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+                val profile = mockProfile {
+                    every { decodeSetting(any()) } answers { nextSetting }
+                }
+                val engine = AapSessionEngine(profile, timeSource)
+                engine.start(this as TestScope)
+                engine.onHandshakeSent()
+
+                nextSetting = settingPair(
+                    AapSetting.AncMode(
+                        current = AapSetting.AncMode.Value.OFF,
+                        supported = supportedModes,
+                    )
+                )
+                engine.processMessage(dummyMessage(commandType = 0x0002))
+                engine.state.value.setting<AapSetting.AllowOffOption>().shouldBeNull()
+
+                nextSetting = settingPair(
+                    AapSetting.EarDetection(
+                        primaryPod = AapSetting.EarDetection.PodPlacement.IN_CASE,
+                        secondaryPod = AapSetting.EarDetection.PodPlacement.IN_CASE,
+                    )
+                )
+                engine.processMessage(dummyMessage())
+                advanceTimeBy(1600L)
+                engine.state.value.setting<AapSetting.AllowOffOption>().shouldBeNull()
+
+                nextSetting = settingPair(
+                    AapSetting.AncMode(
+                        current = AapSetting.AncMode.Value.ADAPTIVE,
+                        supported = supportedModes,
+                    )
+                )
+                engine.processMessage(dummyMessage())
+                advanceTimeBy(1600L)
+                engine.state.value.setting<AapSetting.AllowOffOption>().shouldBeNull()
+            }
+
+        @Test
+        fun `stable in-ear OFF infers AllowOffOption true after delay`() = runTest(UnconfinedTestDispatcher()) {
+            val supportedModes = listOf(
+                AapSetting.AncMode.Value.OFF,
+                AapSetting.AncMode.Value.ON,
+                AapSetting.AncMode.Value.ADAPTIVE,
+            )
+            var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+            val profile = mockProfile {
+                every { decodeSetting(any()) } answers { nextSetting }
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            engine.start(this as TestScope)
+            engine.onHandshakeSent()
+
+            nextSetting = settingPair(
+                AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                )
+            )
+            engine.processMessage(dummyMessage(commandType = 0x0002))
+
+            nextSetting = settingPair(
+                AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.OFF,
+                    supported = supportedModes,
+                )
+            )
+            engine.processMessage(dummyMessage())
+            engine.state.value.setting<AapSetting.AllowOffOption>().shouldBeNull()
+
+            advanceTimeBy(1600L)
+            engine.state.value.setting<AapSetting.AllowOffOption>()?.enabled shouldBe true
+        }
+
+        @Test
+        fun `later non-OFF ANC update cancels pending AllowOffOption true inference`() =
+            runTest(UnconfinedTestDispatcher()) {
+                val supportedModes = listOf(
+                    AapSetting.AncMode.Value.OFF,
+                    AapSetting.AncMode.Value.ON,
+                    AapSetting.AncMode.Value.ADAPTIVE,
+                )
+                var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+                val profile = mockProfile {
+                    every { decodeSetting(any()) } answers { nextSetting }
+                }
+                val engine = AapSessionEngine(profile, timeSource)
+                engine.start(this as TestScope)
+                engine.onHandshakeSent()
+
+                nextSetting = settingPair(
+                    AapSetting.EarDetection(
+                        primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                        secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                    )
+                )
+                engine.processMessage(dummyMessage(commandType = 0x0002))
+
+                nextSetting = settingPair(
+                    AapSetting.AncMode(
+                        current = AapSetting.AncMode.Value.OFF,
+                        supported = supportedModes,
+                    )
+                )
+                engine.processMessage(dummyMessage())
+
+                advanceTimeBy(500L)
+                nextSetting = settingPair(
+                    AapSetting.AncMode(
+                        current = AapSetting.AncMode.Value.ADAPTIVE,
+                        supported = supportedModes,
+                    )
+                )
+                engine.processMessage(dummyMessage())
+
+                advanceTimeBy(1600L)
+                engine.state.value.setting<AapSetting.AllowOffOption>().shouldBeNull()
+                engine.state.value.setting<AapSetting.AncMode>()!!.current shouldBe AapSetting.AncMode.Value.ADAPTIVE
+            }
+
+        @Test
+        fun `contradicting OFF report during a pending ANC request blocks AllowOff inference`() =
+            runTest(UnconfinedTestDispatcher()) {
+                val supportedModes = listOf(
+                    AapSetting.AncMode.Value.OFF,
+                    AapSetting.AncMode.Value.ON,
+                    AapSetting.AncMode.Value.ADAPTIVE,
+                )
+                var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+                val profile = mockProfile {
+                    every { decodeSetting(any()) } answers { nextSetting }
+                }
+                val engine = AapSessionEngine(profile, timeSource)
+                engine.startReady(this as TestScope)
+
+                nextSetting = settingPair(
+                    AapSetting.EarDetection(
+                        primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                        secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                    )
+                )
+                engine.processMessage(dummyMessage())
+
+                nextSetting = settingPair(
+                    AapSetting.AncMode(current = AapSetting.AncMode.Value.ON, supported = supportedModes)
+                )
+                engine.processMessage(dummyMessage())
+
+                engine.send(AapCommand.SetAncMode(AapSetting.AncMode.Value.ADAPTIVE)) { }
+
+                // AirPods Pro 3 firmware answering an ADAPTIVE write with OFF. Must not be taken as
+                // evidence that OFF is a permitted mode.
+                nextSetting = settingPair(
+                    AapSetting.AncMode(current = AapSetting.AncMode.Value.OFF, supported = supportedModes)
+                )
+                engine.processMessage(dummyMessage())
+
+                advanceTimeBy(1600L)
+                engine.state.value.setting<AapSetting.AllowOffOption>().shouldBeNull()
+            }
+
+        @Test
+        fun `unsolicited OFF after a contradicted one still infers AllowOffOption true`() =
+            runTest(UnconfinedTestDispatcher()) {
+                val supportedModes = listOf(
+                    AapSetting.AncMode.Value.OFF,
+                    AapSetting.AncMode.Value.ON,
+                    AapSetting.AncMode.Value.ADAPTIVE,
+                )
+                var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+                val profile = mockProfile {
+                    every { decodeSetting(any()) } answers { nextSetting }
+                }
+                val engine = AapSessionEngine(profile, timeSource)
+                engine.startReady(this as TestScope)
+
+                nextSetting = settingPair(
+                    AapSetting.EarDetection(
+                        primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                        secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                    )
+                )
+                engine.processMessage(dummyMessage())
+
+                nextSetting = settingPair(
+                    AapSetting.AncMode(current = AapSetting.AncMode.Value.ON, supported = supportedModes)
+                )
+                engine.processMessage(dummyMessage())
+
+                engine.send(AapCommand.SetAncMode(AapSetting.AncMode.Value.ADAPTIVE)) { }
+                nextSetting = settingPair(
+                    AapSetting.AncMode(current = AapSetting.AncMode.Value.OFF, supported = supportedModes)
+                )
+                engine.processMessage(dummyMessage())
+
+                // Let the request finish failing, so nothing of ours is outstanding any more.
+                advanceTimeBy(AapOutboundController.VERIFICATION_TIMEOUT_MS * 2 + 100L)
+                engine.state.value.pendingAncMode.shouldBeNull()
+
+                // Now a genuine switch into OFF (stem press / another phone) must still train it.
+                nextSetting = settingPair(
+                    AapSetting.AncMode(current = AapSetting.AncMode.Value.OFF, supported = supportedModes)
+                )
+                engine.processMessage(dummyMessage())
+
+                advanceTimeBy(1600L)
+                engine.state.value.setting<AapSetting.AllowOffOption>()?.enabled shouldBe true
+            }
+
+        @Test
+        fun `unrelated setting report does not prematurely confirm a non-ANC command`() =
+            runTest(UnconfinedTestDispatcher()) {
+                var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+                val profile = mockProfile {
+                    every { decodeSetting(any()) } answers { nextSetting }
+                }
+                val engine = AapSessionEngine(profile, timeSource)
+                engine.startReady(this as TestScope)
+
+                val rejected = mutableListOf<AapCommand>()
+                val collectJob = launch { engine.settingRejected.collect { rejected += it } }
+
+                nextSetting = settingPair(
+                    AapSetting.EarDetection(
+                        primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                        secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                    )
+                )
+                engine.processMessage(dummyMessage())
+
+                nextSetting = settingPair(AapSetting.ConversationalAwareness(enabled = false))
+                engine.processMessage(dummyMessage())
+
+                engine.send(AapCommand.SetConversationalAwareness(true)) { }
+
+                // An unrelated frame must not settle the outstanding verification: the optimistic
+                // write already satisfies its predicate, so doing so would swallow the rejection.
+                nextSetting = settingPair(
+                    AapSetting.EarDetection(
+                        primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                        secondaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                    )
+                )
+                engine.processMessage(dummyMessage())
+
+                // The device then contradicts the write.
+                nextSetting = settingPair(AapSetting.ConversationalAwareness(enabled = false))
+                engine.processMessage(dummyMessage())
+
+                advanceTimeBy(AapOutboundController.VERIFICATION_TIMEOUT_MS * 2 + 100L)
+                rejected shouldBe listOf(AapCommand.SetConversationalAwareness(true))
+                collectJob.cancel()
+            }
+
+        @Test
+        fun `rejected OFF command infers AllowOffOption false`() = runTest(UnconfinedTestDispatcher()) {
+            val supportedModes = listOf(
+                AapSetting.AncMode.Value.OFF,
+                AapSetting.AncMode.Value.ON,
+                AapSetting.AncMode.Value.ADAPTIVE,
+            )
+            var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+            val profile = mockProfile {
+                every { decodeSetting(any()) } answers { nextSetting }
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            engine.startReady(this as TestScope)
+
+            nextSetting = settingPair(
+                AapSetting.EarDetection(
+                    primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                    secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+                )
+            )
+            engine.processMessage(dummyMessage())
+
+            nextSetting = settingPair(
+                AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ADAPTIVE,
+                    supported = supportedModes,
+                )
+            )
+            engine.processMessage(dummyMessage())
+
+            nextSetting = settingPair(AapSetting.AllowOffOption(enabled = true))
+            engine.processMessage(dummyMessage())
+
+            val sentCommands = mutableListOf<AapCommand>()
+            engine.send(AapCommand.SetAncMode(AapSetting.AncMode.Value.OFF)) { sentCommands += it }
+
+            nextSetting = settingPair(
+                AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ADAPTIVE,
+                    supported = supportedModes,
+                )
+            )
+            engine.processMessage(dummyMessage())
+
+            advanceTimeBy(AapOutboundController.VERIFICATION_TIMEOUT_MS * 2 + 100L)
+            engine.state.value.pendingAncMode.shouldBeNull()
+            engine.state.value.setting<AapSetting.AllowOffOption>()?.enabled shouldBe false
+            sentCommands shouldBe listOf(
+                AapCommand.SetAncMode(AapSetting.AncMode.Value.OFF),
+                AapCommand.SetAncMode(AapSetting.AncMode.Value.OFF),
+            )
+        }
+
+        @Test
+        fun `rejected OFF command emits offRejected event`() = runTest(UnconfinedTestDispatcher()) {
+            val supportedModes = listOf(
+                AapSetting.AncMode.Value.OFF,
+                AapSetting.AncMode.Value.ON,
+                AapSetting.AncMode.Value.ADAPTIVE,
+            )
+            var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+            val profile = mockProfile {
+                every { decodeSetting(any()) } answers { nextSetting }
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            engine.startReady(this as TestScope)
+
+            val rejected = mutableListOf<Unit>()
+            val collectJob = launch { engine.offRejected.collect { rejected += it } }
+
+            nextSetting = settingPair(
+                AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ADAPTIVE,
+                    supported = supportedModes,
+                )
+            )
+            engine.processMessage(dummyMessage())
+
+            engine.send(AapCommand.SetAncMode(AapSetting.AncMode.Value.OFF)) { }
+
+            nextSetting = settingPair(
+                AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ADAPTIVE,
+                    supported = supportedModes,
+                )
+            )
+            engine.processMessage(dummyMessage())
+
+            advanceTimeBy(AapOutboundController.VERIFICATION_TIMEOUT_MS * 2 + 100L)
+            rejected.size shouldBe 1
+            collectJob.cancel()
+        }
+
+        @Test
+        fun `rejected non-OFF command does not emit offRejected`() = runTest(UnconfinedTestDispatcher()) {
+            val supportedModes = listOf(
+                AapSetting.AncMode.Value.OFF,
+                AapSetting.AncMode.Value.ON,
+                AapSetting.AncMode.Value.ADAPTIVE,
+            )
+            var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+            val profile = mockProfile {
+                every { decodeSetting(any()) } answers { nextSetting }
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            engine.startReady(this as TestScope)
+
+            val rejected = mutableListOf<Unit>()
+            val collectJob = launch { engine.offRejected.collect { rejected += it } }
+
+            nextSetting = settingPair(
+                AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ADAPTIVE,
+                    supported = supportedModes,
+                )
+            )
+            engine.processMessage(dummyMessage())
+
+            engine.send(AapCommand.SetAncMode(AapSetting.AncMode.Value.ON)) { }
+
+            nextSetting = settingPair(
+                AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ADAPTIVE,
+                    supported = supportedModes,
+                )
+            )
+            engine.processMessage(dummyMessage())
+
+            advanceTimeBy(AapOutboundController.VERIFICATION_TIMEOUT_MS * 2 + 100L)
+            rejected shouldBe emptyList()
+            collectJob.cancel()
+        }
+    }
+
+
+@Test
+fun `matching ANC echo clears pending mode without optimistic current overwrite`() =
+    runTest(UnconfinedTestDispatcher()) {
+        val supportedModes = listOf(
+            AapSetting.AncMode.Value.OFF,
+            AapSetting.AncMode.Value.ON,
+            AapSetting.AncMode.Value.ADAPTIVE,
+        )
+        var nextSetting: Pair<KClass<out AapSetting>, AapSetting>? = null
+        val profile = mockProfile {
+            every { decodeSetting(any()) } answers { nextSetting }
+        }
+        val engine = AapSessionEngine(profile, timeSource)
+        engine.startReady(this as TestScope)
+
+        nextSetting = settingPair(
+            AapSetting.EarDetection(
+                primaryPod = AapSetting.EarDetection.PodPlacement.IN_EAR,
+                secondaryPod = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR,
+            )
+        )
+        engine.processMessage(dummyMessage())
+
+        nextSetting = settingPair(
+            AapSetting.AncMode(
+                current = AapSetting.AncMode.Value.ON,
+                supported = supportedModes,
+            )
+        )
+        engine.processMessage(dummyMessage())
+
+        val sentCommands = mutableListOf<AapCommand>()
+        engine.send(AapCommand.SetAncMode(AapSetting.AncMode.Value.ADAPTIVE)) { sentCommands += it }
+
+        engine.state.value.pendingAncMode shouldBe AapSetting.AncMode.Value.ADAPTIVE
+        engine.state.value.setting<AapSetting.AncMode>()!!.current shouldBe AapSetting.AncMode.Value.ON
+
+        nextSetting = settingPair(
+            AapSetting.AncMode(
+                current = AapSetting.AncMode.Value.ADAPTIVE,
+                supported = supportedModes,
+            )
+        )
+        engine.processMessage(dummyMessage())
+
+        engine.state.value.pendingAncMode.shouldBeNull()
+        engine.state.value.setting<AapSetting.AncMode>()!!.current shouldBe AapSetting.AncMode.Value.ADAPTIVE
+        sentCommands shouldBe listOf(AapCommand.SetAncMode(AapSetting.AncMode.Value.ADAPTIVE))
+    }
+
+    // ── ANC Debounce ────────────────────────────────────────
+
+    @Nested
+    inner class AncDebounceTests {
+
+        @Test
+        fun `first ANC mode applied immediately without debounce`() {
+            val profile = mockProfile {
+                every { decodeStemPress(any()) } returns null
+                every { decodeBattery(any()) } returns null
+                every { decodePrivateKeyResponse(any()) } returns null
+                every { decodeDeviceInfo(any()) } returns null
+                every { decodeSetting(any()) } returns (AapSetting.AncMode::class to AapSetting.AncMode(
+                    current = AapSetting.AncMode.Value.ON,
+                    supported = listOf(AapSetting.AncMode.Value.ON),
+                ))
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            val scope = TestScope(UnconfinedTestDispatcher())
+            engine.start(scope)
+            engine.onHandshakeSent()
+
+            engine.processMessage(dummyMessage())
+
+            // Applied immediately (first ANC mode, no debounce)
+            engine.state.value.setting<AapSetting.AncMode>()!!.current shouldBe AapSetting.AncMode.Value.ON
+        }
+
+        @Test
+        fun `unsolicited ANC mode change is debounced`() = runTest(UnconfinedTestDispatcher()) {
+            // Set up with an existing ANC mode and no recent send
+            every { timeSource.currentTimeMillis() } returns 10000L // Well past any send
+
+            val ancSetting = AapSetting.AncMode(
+                current = AapSetting.AncMode.Value.ON,
+                supported = listOf(AapSetting.AncMode.Value.ON, AapSetting.AncMode.Value.TRANSPARENCY),
+            )
+            val profile = mockProfile {
+                every { decodeStemPress(any()) } returns null
+                every { decodeBattery(any()) } returns null
+                every { decodePrivateKeyResponse(any()) } returns null
+                every { decodeDeviceInfo(any()) } returns null
+                every { decodeSetting(any()) } returns (AapSetting.AncMode::class as KClass<out AapSetting> to ancSetting.copy(
+                    current = AapSetting.AncMode.Value.TRANSPARENCY
+                ))
+            }
+            val engine = AapSessionEngine(profile, timeSource)
+            engine.start(this as TestScope)
+            engine.onHandshakeSent()
+
+            // First message: set initial ANC mode (no debounce for first)
+            every { profile.decodeSetting(any()) } returns (AapSetting.AncMode::class as KClass<out AapSetting> to ancSetting)
+            engine.processMessage(dummyMessage(commandType = 0x0002)) // triggers READY + first ANC
+
+            engine.state.value.setting<AapSetting.AncMode>()!!.current shouldBe AapSetting.AncMode.Value.ON
+
+            // Second message: unsolicited change — should be debounced
+            every { profile.decodeSetting(any()) } returns (AapSetting.AncMode::class as KClass<out AapSetting> to ancSetting.copy(
+                current = AapSetting.AncMode.Value.TRANSPARENCY
+            ))
+            engine.processMessage(dummyMessage())
+
+            // Not yet applied (debounced)
+            engine.state.value.setting<AapSetting.AncMode>()!!.current shouldBe AapSetting.AncMode.Value.ON
+
+            // After 1500ms debounce
+            advanceTimeBy(1600L)
+            engine.state.value.setting<AapSetting.AncMode>()!!.current shouldBe AapSetting.AncMode.Value.TRANSPARENCY
+        }
+    }
+
+    // ── HID descriptor handling ─────────────────────────────
+
+    @Nested
+    inner class HidDescriptorTests {
+
+        private fun hidMessage(payload: ByteArray): AapMessage {
+            val header = byteArrayOf(0x04, 0x00, (payload.size and 0xFF).toByte(), ((payload.size shr 8) and 0xFF).toByte())
+            val cmdBytes = byteArrayOf(0x17, 0x00)
+            val raw = header + cmdBytes + payload
+            return AapMessage(raw = raw, commandType = 0x0017, payload = payload)
+        }
+
+        private fun hexToBytes(hex: String): ByteArray =
+            hex.split(" ").filter { it.isNotBlank() }.map { it.toInt(16).toByte() }.toByteArray()
+
+        @Test
+        fun `0x0017 during HANDSHAKING triggers READY transition`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+
+            engine.start(scope)
+            engine.onHandshakeSent()
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.HANDSHAKING
+
+            engine.processMessage(hidMessage(hexToBytes("00 04 00 00 01 00 FF")))
+
+            engine.state.value.connectionState shouldBe AapPodState.ConnectionState.READY
+        }
+
+        @Test
+        fun `0x0017 refreshes lastMessageAt`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+            engine.startReady(scope)
+
+            engine.state.value.lastMessageAt.shouldNotBeNull()
+            val before = engine.state.value.lastMessageAt
+
+            every { timeSource.now() } returns Instant.ofEpochMilli(5000L)
+
+            val fill = ByteArray(65) { 0xFF.toByte() }
+            val descriptor = hexToBytes("00 04 00 00 44 00 01 A1 81") + fill
+            engine.processMessage(hidMessage(descriptor))
+
+            engine.state.value.lastMessageAt shouldBe Instant.ofEpochMilli(5000L)
+        }
+
+        @Test
+        fun `malformed 0x0017 payload does not throw`() {
+            val engine = createEngine()
+            val scope = TestScope(UnconfinedTestDispatcher())
+            engine.startReady(scope)
+
+            engine.processMessage(hidMessage(ByteArray(0)))
+            engine.processMessage(hidMessage(hexToBytes("AB CD")))
+            engine.processMessage(hidMessage(hexToBytes("00 04 00 00 44 00")))
+        }
+
+        @Test
+        fun `0x0017 does not run through decode pipeline`() = runTest(UnconfinedTestDispatcher()) {
+            val profile = mockProfile {
+                every { decodeStemPress(any()) } returns StemPressEvent(
+                    StemPressEvent.PressType.SINGLE,
+                    StemPressEvent.Bud.LEFT
+                )
+            }
+            val engine = createEngine(profile)
+            engine.startReady(this as TestScope)
+
+            val collected = mutableListOf<StemPressEvent>()
+            val collector = launch { engine.stemPressEvents.collect { collected.add(it) } }
+
+            val fill = ByteArray(65) { 0xFF.toByte() }
+            val descriptor = hexToBytes("00 04 00 00 44 00 01 A1 81") + fill
+            engine.processMessage(hidMessage(descriptor))
+            runCurrent()
+
+            // If 0x0017 went through the decode pipeline, decodeStemPress would fire
+            // and emit a StemPressEvent. The fast-path should bypass all decode calls.
+            collected.shouldBeEmpty()
+            collector.cancel()
+        }
+    }
+}

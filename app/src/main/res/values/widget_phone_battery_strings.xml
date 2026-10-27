@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_phone_battery_label">Phone</string>
+    <string name="widget_phone_battery_switch">Show phone battery</string>
+    <string name="widget_phone_charging_description">Charging</string>
+</resources>

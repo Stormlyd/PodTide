@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="autoconnect_guidance_background">充电盒关闭时仍会继续后台监听，扫描时机由手机控制。</string>
+    <string name="autoconnect_guidance_recommended">推荐：兼顾响应与连接尝试次数</string>
+    <string name="autoconnect_guidance_when_seen">收到新鲜广播且耳机空闲时尝试连接，可能发起更多连接请求。</string>
+    <string name="autoconnect_guidance_case_open">等到新鲜的开盒信号再尝试连接，避免合盒时发起请求。</string>
+    <string name="autoconnect_guidance_in_ear">等到耳机报告已佩戴再尝试连接，连接可能稍晚。</string>
+</resources>

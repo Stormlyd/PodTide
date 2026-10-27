@@ -1,0 +1,624 @@
+<resources>
+    <string name="general_share_action">Share</string>
+    <string name="general_done_action">Done</string>
+    <string name="general_cancel_action">Cancel</string>
+    <string name="general_thank_you_label">Thank you</string>
+    <string name="general_upgrade_action">Upgrade</string>
+    <string name="general_retry_action">Retry</string>
+    <string name="common_feature_requires_pro_msg">Upgrade to unlock.</string>
+    <string name="common_upgrade_required_label">Requires upgrade</string>
+    <string name="general_donate_action">Donate</string>
+    <string name="general_check_action">Check</string>
+    <string name="general_close_action">Close</string>
+    <string name="general_dismiss_action">Dismiss</string>
+    <string name="general_save_action">Save</string>
+    <string name="general_guide_action">Guide</string>
+    <string name="general_continue_action">Continue</string>
+    <string name="general_show_action">Show</string>
+    <string name="general_hide_action">Hide</string>
+
+    <string name="general_example_label">E.g.: %s</string>
+
+    <string name="upgrade_capod_label">Upgrade PodBridge</string>
+    <string name="upgrade_capod_description">Get additional features and support the developer.</string>
+    <string name="upgrade_benefit_themes">Theme customization</string>
+    <string name="upgrade_benefit_autoplay">Auto-play &amp; auto-pause</string>
+    <string name="upgrade_benefit_popups">Popup on case open &amp; connection</string>
+    <string name="upgrade_benefit_widgets">Home screen widgets</string>
+    <string name="upgrade_benefit_device_settings">Advanced device settings</string>
+    <string name="upgrade_benefit_device_controls">Device controls &#8212; noise, stems &amp; more</string>
+    <string name="upgrade_benefit_support">Support the developer</string>
+    <string name="upgrade_benefit_disclaimer">Feature availability depends on your headphones and device.</string>
+
+
+
+    <string name="settings_monitor_connected_notification_label">Extra notification</string>
+    <string name="settings_monitor_connected_notification_description">Shows a second notification that only appears while a device is connected. With this on, you can hide the permanent \"No devices\" notification: turn off the \"Device status\" category in Android\'s notification settings for PodBridge.</string>
+    <string name="settings_keep_notification_after_disconnect_label">Keep notification after disconnect</string>
+    <string name="settings_keep_notification_after_disconnect_description">Continue showing the last known battery levels even after your AirPods disconnect</string>
+    <string name="settings_monitor_statusbar_battery_label">Battery level in status bar</string>
+    <string name="settings_monitor_statusbar_battery_description">Shows the battery percentage as the notification icon in the status bar. For earbuds, the lower of the two is shown, skipping one that is charging.</string>
+    <string name="settings_autopause_label">Auto pause</string>
+    <string name="settings_autopause_description">Pause audio when removing the device from your ear.</string>
+    <string name="settings_autopplay_label">Auto play</string>
+    <string name="settings_autoplay_description">Resume music when wearing your pods again, but only if Auto pause stopped it. Pauses you triggered yourself (phone, AirPods stem, sleep) stay paused.</string>
+    <string name="settings_start_music_on_wear_label">Start music on wear</string>
+    <string name="settings_start_music_on_wear_description">Always tries to play music when you put your pods on, even after a manual pause.</string>
+    <string name="settings_eardetection_info_description">If ear detection only works for one pod, this is an Apple limitation. Only the \"primary pod\" (used for microphone) is detected. Configure on Apple devices: Settings → Bluetooth → AirPods → Microphone.</string>
+    <string name="settings_autoconnect_label">Auto connect</string>
+    <string name="settings_autoconnect_description">Only request a connection for verified earbuds with a fresh idle broadcast. Background monitoring stays active. Your system must permit Bluetooth audio connection requests.</string>
+    <string name="settings_autoconnect_info_android12">Auto connect relies on a system feature that Android 12 and newer restricts. It may not work on your device.</string>
+    <string name="settings_autoconnect_condition_label">Auto connect condition</string>
+    <string name="settings_devices_label">Devices</string>
+    <string name="settings_devices_description">Manage your devices.</string>
+    <string name="settings_reaction_label">Reactions</string>
+
+    <string name="settings_category_compatibility_options_title">Compatibility options</string>
+    <string name="settings_category_compatibility_options_description">Don\'t touch if everything works ;)</string>
+    <string name="settings_compat_offloaded_filtering_disabled_title">Disable hardware filtering</string>
+    <string name="settings_compat_offloaded_filtering_disabled_summary">Try this if your AirPods are never detected. The app will look through all nearby Bluetooth signals itself, instead of letting your phone pre-select them.</string>
+    <string name="settings_compat_offloaded_batching_disabled_title">Disable hardware batching</string>
+    <string name="settings_compat_offloaded_batching_disabled_summary">Try this if battery levels only update late or in bursts. Your phone will pass on each Bluetooth signal right away, instead of collecting them first.</string>
+
+    <string name="settings_onepod_mode_label">One pod mode</string>
+    <string name="settings_onepod_mode_description">Auto play/pause and auto-connect react to a single pod instead of requiring both.</string>
+    <string name="settings_popup_caseopen_label">Show case popup</string>
+    <string name="settings_popup_caseopen_description">Show a popup when the device case is opened (experimental).</string>
+    <string name="settings_popup_connected_label">Show connection popup</string>
+    <string name="settings_popup_connected_description">Show a popup for each new connection.</string>
+    <string name="settings_popup_info_not_in_app">Popups are only shown when you are not in the app.</string>
+    <string name="settings_charged_notification_label">Charged notification</string>
+    <string name="settings_charged_notification_description">Show a notification once everything that is charging reaches the target charge level.</string>
+    <string name="settings_charged_threshold_label">Target charge level</string>
+    <string name="settings_charged_scope_label">Monitored batteries</string>
+    <string name="settings_charged_scope_pods_label">Pods only</string>
+    <string name="settings_charged_scope_case_label">Case only</string>
+    <string name="settings_charged_scope_both_label">Pods and case</string>
+    <string name="settings_caselow_reminder_label">Case battery reminder</string>
+    <string name="settings_caselow_reminder_description">Remind me to charge the case when I put the pods back and the case battery is low.</string>
+    <string name="settings_caselow_threshold_label">Reminder level</string>
+
+    <string name="device_settings_experimental_title">Experimental feature</string>
+    <string name="device_settings_experimental_description">This feature hasn\'t been tested on all devices yet. If something isn\'t working correctly, please open an issue with a debug log.</string>
+    <string name="device_settings_experimental_action">Open Issue Tracker</string>
+
+    <string name="notification_channel_device_status_label">Device status</string>
+    <string name="notification_channel_device_status_connected_label">Connected device</string>
+    <string name="monitor_notification_extra_enabled_hint">You can disable this notification in system settings.</string>
+    <string name="monitor_notification_starting">Starting up…</string>
+
+    <string name="support_debuglog_label">Debug log</string>
+    <string name="support_debuglog_desc">Record everything the app is doing into a zip file that you can share.</string>
+    <string name="debug_debuglog_record_action">Record debug log</string>
+    <string name="debug_debuglog_stop_action">Stop recording</string>
+    <string name="debug_debuglog_sensitive_information_message">The generated file contains sensitive information (e.g. Bluetooth device details). Only share it with trusted parties.</string>
+    <string name="settings_debuglog_explanation">This feature records everything the app is doing into a shareable file. The generated file contains sensitive information (e.g. Bluetooth device details). Only share it with trusted parties (e.g. a developer that is troubleshooting an issue).</string>
+
+    <string name="settings_support_label">Support</string>
+    <string name="settings_support_description">If you need some help.</string>
+
+    <string name="settings_wiki_label">Wiki</string>
+    <string name="settings_wiki_description">FAQ &amp; Guides</string>
+
+    <string name="issue_tracker_label">Issue tracker</string>
+    <string name="issue_tracker_description">A public issue tracker for bug reports and feature requests (english only).</string>
+
+    <string name="discord_label">Discord</string>
+    <string name="discord_description">A place to hang out in and ask questions.</string>
+
+    <string name="changelog_label">Changelog</string>
+    <string name="settings_label">Settings</string>
+    <string name="settings_privacy_policy_label">Privacy policy</string>
+    <string name="settings_privacy_policy_desc">Handling data responsibly.</string>
+    <string name="settings_licenses_label">Licenses</string>
+    <string name="settings_category_other_label">Other</string>
+    <string name="settings_category_gethelp_label">Get help</string>
+    <string name="settings_category_debug_label">Debug</string>
+    <string name="settings_general_label">Settings</string>
+    <string name="settings_general_description">General tweaks that affect the whole app.</string>
+
+    <string name="settings_overview_hide_unmatched_label">Hide unmatched devices</string>
+    <string name="settings_overview_hide_unmatched_description">Don\'t show nearby devices that don\'t match any of your profiles in the overview, e.g. other people\'s AirPods.</string>
+    <string name="device_battery_estimate_toggle_label">Battery estimates</string>
+    <string name="device_battery_estimate_card_desc">Learn how this device charges and drains to estimate time remaining, time until charged, and how much of its rated listening time it still reaches.</string>
+    <string name="device_battery_estimate_reset_action">Reset learned data</string>
+    <string name="device_battery_estimate_reset_desc">Start over from the rated battery life.</string>
+    <string name="device_battery_estimate_reset_confirm_title">Reset learned data?</string>
+    <string name="device_battery_estimate_reset_confirm_message">PodBridge will forget this device\'s measured drain, charging speed and listening time, and start over from the rated battery life.</string>
+    <string name="settings_acknowledgements_label">Acknowledgements</string>
+
+
+
+    <string name="help_translate_label">Translation</string>
+    <string name="help_translate_description">Help translate this app into your favorite language.</string>
+
+    <string name="translators_thanks_title">Translators</string>
+    <string name="translators_thanks_description">darken</string>
+
+    <string name="widget_description">A widget showing the last known device status.</string>
+    <string name="anc_widget_description">Control ANC modes directly from your home screen.</string>
+    <string name="anc_widget_config_aap_required_hint">This widget requires a direct connection (AAP) to your device. Make sure your device is paired and connected in the app before using this widget.</string>
+    <string name="anc_widget_no_anc_support_label">This device does not support noise control</string>
+    <string name="anc_widget_aap_not_connected_label">Not connected</string>
+    <string name="anc_widget_aap_not_connected_nearby_description">Nearby but not connected</string>
+    <string name="anc_widget_aap_not_connected_not_nearby_description">Not nearby</string>
+    <string name="anc_widget_aap_connecting_label">Connecting…</string>
+    <string name="tile_anc_label">Noise Control</string>
+    <string name="tile_anc_subtitle_permission_required">Permission required</string>
+    <string name="tile_anc_subtitle_no_device">No device</string>
+    <string name="tile_anc_subtitle_no_anc_support">No noise control</string>
+    <string name="tile_anc_subtitle_bluetooth_off">Bluetooth off</string>
+    <string name="widget_config_screen_title">Widget Configuration</string>
+    <string name="widget_configuration_title">Select Device</string>
+    <string name="widget_configuration_description">Choose which device profile this widget should display.</string>
+
+    <string name="widget_no_data_label">No data</string>
+    <string name="widget_error_loading_label">Error loading widget</string>
+    <string name="widget_config_appearance_label">Appearance</string>
+    <string name="widget_config_preset_label">Presets</string>
+    <string name="widget_config_background_color_label">Background color</string>
+    <string name="widget_config_foreground_color_label">Text &amp; icon color</string>
+    <string name="widget_config_transparency_label">Background transparency</string>
+    <string name="widget_config_show_device_label">Show device name</string>
+    <string name="widget_config_reset_label">Reset to defaults</string>
+    <string name="widget_config_preview_resize_hint">You can resize the widget after placing it on your home screen.</string>
+    <string name="widget_config_custom_label">Custom</string>
+    <string name="widget_config_preset_material_you">Material You</string>
+    <string name="widget_config_preset_dark">Dark</string>
+    <string name="widget_config_preset_light">Light</string>
+    <string name="widget_config_preset_blue">Blue</string>
+    <string name="widget_config_preset_green">Green</string>
+    <string name="widget_config_preset_red">Red</string>
+    <string name="settings_compat_indirectcallback_title">Indirect data delivery</string>
+    <string name="settings_compat_indirectcallback_summary">Try this if the other compatibility options didn\'t help. Android will hand Bluetooth signals to the app in the background, instead of the app listening for them directly.</string>
+
+    <string name="troubleshooter_title">Troubleshooter</string>
+    <string name="troubleshooter_summary">Diagnose and fix Bluetooth connectivity issues.</string>
+    <string name="troubleshooter_ble_intro_title">Bluetooth Low Energy Broadcasts</string>
+    <string name="troubleshooter_ble_intro_body1">AirPods (and similar headphones) broadcast status information using a BLE technology called \"advertisements\". Some phones don\'t implement this technology correctly. PodBridge can attempt to fix this by trying different compatibility options until data is received. Start music playback on your headphones and place them close to your phone, then start the process.</string>
+    <string name="troubleshooter_ble_intro_start_action">Start troubleshooting</string>
+    <string name="troubleshooter_ble_process_title">Troubleshoot in progress</string>
+    <string name="troubleshooter_ble_process_subtile">Each step takes 5–10 seconds</string>
+    <string name="troubleshooter_ble_result_success_title">Success</string>
+    <string name="troubleshooter_ble_result_success_body">BLE advertisement broadcasts are being received by PodBridge.</string>
+    <string name="troubleshooter_ble_result_failure_title">Unsuccessful</string>
+    <string name="troubleshooter_ble_result_failure_phone_body">Your phone didn\'t receive any BLE data at all. You can retry this test in a crowded area to see if data sources (other than your headphones) can be received. No data being received points towards an issue with your phone\'s operating system.</string>
+    <string name="troubleshooter_ble_result_failure_phone_headphones">Your phone received BLE data, but the data does not come from any supported device. Are your headphones powered on? Does PodBridge support your headphone?</string>
+
+
+    <string name="onboarding_body1">This app adds support for AirPod specific features to Android.</string>
+    <string name="onboarding_body2">Not all Android devices fully support the extra AirPod features. Your operating system requires a correctly working Bluetooth-Low-Energy implementation.</string>
+    <string name="onboarding_body3">PodBridge has no ads and does not collect your data.</string>
+    <string name="onboarding_body4">You can upgrade to PodBridge Pro to gain extra features and support development.</string>
+
+    <!-- Strings from app-common -->
+    <string name="app_name">PodBridge</string>
+    <!-- Upgraded app title. %1$s is the app name, %2$s the tier qualifier ("Pro" / "FOSS").
+         Reorder or repunctuate for your language; both placeholders must appear exactly once. -->
+    <string name="app_name_upgraded_template">%1$s %2$s</string>
+
+    <string name="general_value_not_available_label">N/A</string>
+    <string name="general_error_label">Error</string>
+    <string name="general_grant_permission_action">Grant permission</string>
+    <string name="general_manage_devices_action">Manage devices</string>
+
+    <string name="overview_nomaindevice_label">No device configured</string>
+    <string name="overview_nomaindevice_description">Configure your device to start monitoring battery levels and enable additional features.</string>
+    <string name="overview_bluetooth_disabled_icon_cd">Bluetooth disabled, open settings</string>
+    <string name="overview_bluetooth_nearby_icon_cd">Device nearby, open Bluetooth settings</string>
+    <string name="overview_bluetooth_connected_icon_cd">Device connected, open Bluetooth settings</string>
+    <string name="overview_bluetooth_disabled_label">Bluetooth is disabled</string>
+    <string name="overview_bluetooth_disabled_description">Bluetooth is disabled, enable it ;)</string>
+    <string name="overview_monitoring_active_label">Monitoring for devices</string>
+    <string name="overview_monitoring_active_description">Make sure your device is nearby and active.</string>
+    <string name="overview_monitoring_off_label">Background monitoring is off</string>
+    <string name="overview_monitoring_off_description">No profile has a paired Bluetooth device, so PodBridge only updates while the app is open. Select one to enable background monitoring, the ongoing notification and reactions.</string>
+    <string name="overview_monitoring_off_action">Select paired device</string>
+    <string name="overview_troubleshoot_suggestion_label">Connected, but no data</string>
+    <string name="overview_troubleshoot_suggestion_description">Your device is connected, but PodBridge isn\'t receiving any live data from it. Your phone may need a compatibility option — the troubleshooter can try to find one automatically.</string>
+    <string name="overview_troubleshoot_suggestion_action">Run troubleshooter</string>
+    <string name="overview_unmatched_devices_label">Unmatched devices</string>
+    <plurals name="overview_unmatched_devices_description">
+        <item quantity="one">%d nearby device was detected without a matching profile. Show it for available details. If it is yours, add a profile from Devices to recognize it.</item>
+        <item quantity="other">%d nearby devices were detected without matching profiles. Show them for available details. If one is yours, add a profile from Devices to recognize it.</item>
+    </plurals>
+    <plurals name="overview_more_devices_upgrade">
+        <item quantity="one">%d more device</item>
+        <item quantity="other">%d more devices</item>
+    </plurals>
+
+    <string name="permission_bluetooth_connect_label">Bluetooth connect</string>
+    <string name="permission_bluetooth_connect_description">This app requires the \"Bluetooth connect\" permission to interact with paired devices and initiate connections.</string>
+    <string name="permission_bluetooth_scan_label">Bluetooth scanning</string>
+    <string name="permission_bluetooth_scan_description">The \"Bluetooth scanning\" permission allows this app to discover and receive Bluetooth data from nearby devices such as your AirPods.</string>
+    <string name="permission_bluetooth_label">Bluetooth</string>
+    <string name="permission_bluetooth_description">This app requires the \"Bluetooth\" permission to connect to paired bluetooth devices.</string>
+    <string name="permission_access_fine_location_label">Access fine location</string>
+    <string name="permission_access_fine_location_description">PodBridge uses the \"fine location\" permission to receive Bluetooth Low Energy data. Your headphones use Bluetooth Low Energy technology to broadcast their status. This app will NOT use Bluetooth data to determine your location.</string>
+    <string name="permission_background_location_label">Background location access</string>
+    <string name="permission_background_location_description">PodBridge uses \"background location access\" to enable features like \"Show popup\" and \"AutoConnect\" while the app is closed. Background location access allows the app to receive Bluetooth Low Energy data while it is in the background. This app will NOT use Bluetooth data to determine your location.</string>
+    <string name="permission_ignore_battery_optimizations_label">Disable battery optimizations</string>
+    <string name="permission_ignore_battery_optimizations_description">Battery optimizations prevent this app from reliably receiving Bluetooth data while the app is in the background.</string>
+    <string name="permission_system_alert_window_label">System Alert Window</string>
+    <string name="permission_system_alert_window_description">Allow PodBridge to draw over other apps to make the feature \"Show PopUp\" possible.</string>
+
+
+    <string name="settings_reaction_autoconnect_whenseen_label">When seen</string>
+    <string name="settings_reaction_autoconnect_caseopen_label">Case is open</string>
+    <string name="settings_reaction_autoconnect_inear_label">In ear</string>
+
+    <string name="pods_dual_left_label">Left pod</string>
+    <string name="pods_dual_right_label">Right pod</string>
+    <string name="battery_unavailable_label">Battery unavailable</string>
+    <string name="battery_state_low_cd">Battery low</string>
+    <string name="battery_state_critical_cd">Battery critically low</string>
+    <!-- Case charges: how often the case can still fully recharge BOTH earbuds. Not charge cycles, and not a statement that anything is charging right now. -->
+    <plurals name="battery_case_charges_approx">
+        <item quantity="one">~%d more full charge for both earbuds</item>
+        <item quantity="other">~%d more full charges for both earbuds</item>
+    </plurals>
+    <plurals name="battery_case_charges_at_least">
+        <item quantity="one">At least %d more full charge for both earbuds</item>
+        <item quantity="other">At least %d more full charges for both earbuds</item>
+    </plurals>
+    <string name="battery_case_charges_less_than_one">Less than one more full charge for both earbuds</string>
+    <string name="battery_case_charges_empty">Case is empty, no charges left for your earbuds</string>
+    <!-- Shown when the case reading is too coarse to name any number of charges. Must not mention a count. -->
+    <string name="battery_case_charges_uncertain">Not sure how many full charges are left for both earbuds</string>
+    <string name="battery_case_charges_state_enough_cd">Enough for a full charge</string>
+    <string name="battery_case_charges_state_not_enough_cd">Not enough for a full charge</string>
+    <string name="battery_case_charges_state_uncertain_cd">May not be enough for a full charge</string>
+    <!-- Compact form of the same count for the expanded notification's case row, e.g. "0.8 charges". The number is pre-formatted with one decimal, so it is plural even at "1.0". -->
+    <string name="battery_case_charges_short">%1$s charges</string>
+    <!-- Same, for models whose published case figure is only a lower bound, e.g. "1.6+ charges". -->
+    <string name="battery_case_charges_short_at_least">%1$s+ charges</string>
+    <string name="pods_case_status_open_label">Open</string>
+    <string name="pods_case_status_closed_label">Closed</string>
+    <string name="pods_connection_state_disconnected_label">Not connected to a device</string>
+    <string name="pods_connection_state_idle_label">Connected to a device, but idle</string>
+    <string name="pods_connection_state_music_label">In music mode</string>
+    <string name="pods_connection_state_call_label">In call mode</string>
+    <string name="pods_connection_state_ringing_label">Ringing</string>
+    <string name="pods_connection_state_hanging_up_label">Hanging up</string>
+    <string name="pods_connection_state_unknown_label">Unknown connection state</string>
+    <string name="pods_unknown_raw_data_label">Raw data</string>
+    <string name="pods_unknown_label">Unknown device</string>
+    <string name="pods_unknown_contact_dev">This is an unknown device, but it is using similar message format. Let\'s add support for it, contact me :)</string>
+    <string name="pods_none_label_short">No device</string>
+    <string name="pods_charging_label">Charging</string>
+    <string name="pods_charging_optimized_label">Optimized</string>
+    <string name="pods_inear_label">In ear</string>
+    <string name="pods_microphone_label">Microphone</string>
+    <string name="anc_mode_off">Off</string>
+    <string name="anc_mode_on">ANC</string>
+    <string name="anc_mode_transparency">Transparency</string>
+    <string name="anc_mode_adaptive">Adaptive</string>
+    <string name="conversation_awareness_label">Conversation Awareness</string>
+    <string name="settings_conversation_action_label">When you start speaking</string>
+    <string name="settings_conversation_action_nothing_label">Do nothing</string>
+    <string name="settings_conversation_action_lower_volume_label">Lower volume</string>
+    <string name="settings_conversation_action_pause_label">Pause media</string>
+    <string name="settings_conversation_volume_reduction_label">Volume reduction</string>
+    <string name="signal_badge_ble_cd">BLE scan active</string>
+    <string name="signal_badge_key_irk_cd">Identity verified</string>
+    <string name="signal_badge_key_encrypted_cd">Encrypted connection</string>
+    <string name="signal_badge_aap_cd">Direct connection active</string>
+    <string name="signal_indicator_bars_cd">Signal strength: %1$d of 4 bars</string>
+    <string name="signal_indicator_disconnected_cd">Signal: disconnected</string>
+    <string name="headset_being_worn_label">Being worn</string>
+    <string name="headset_not_being_worn_label">Not being worn</string>
+    <string name="pods_case_unknown_state">Unknown state</string>
+
+    <string name="battery_cached_label">Last known \u00B7 %s</string>
+    <string name="battery_time_remaining_format_hm">%1$dh %2$dm</string>
+    <string name="battery_time_remaining_format_h">%1$dh</string>
+    <string name="battery_time_remaining_format_m">%1$dm</string>
+    <string name="permission_post_notifications_label">Show notifications</string>
+    <string name="permission_post_notifications_description">"Allow PodBridge to show notifications about your AirPods, e.g. their current status while connected."</string>
+
+    <!-- Device profiles -->
+    <string name="profiles_empty_title">No device profiles configured</string>
+    <string name="profiles_empty_description">Create device profiles to manage multiple devices with custom settings and priorities.</string>
+    <string name="profiles_add_action">Add profile</string>
+    <string name="profiles_create_title">Create Profile</string>
+    <string name="profiles_name_label">Profile name</string>
+    <string name="profiles_name_empty_error">Name can\'t be empty</string>
+    <string name="profiles_name_default">My Headphones</string>
+    <string name="profiles_model_label">Device model</string>
+    <string name="profiles_paired_device_label">Paired device</string>
+    <string name="profiles_paired_device_none">None</string>
+    <string name="profiles_paired_device_none_description">No device selected</string>
+    <string name="profiles_paired_device_used_by">Used by %s</string>
+    <string name="profiles_save_action">Save profile</string>
+    <string name="profiles_drag_handle_description">Drag to reorder</string>
+    <string name="profiles_delete_title">Delete Profile</string>
+    <string name="profiles_delete_message">Are you sure you want to delete this profile? This action cannot be undone.</string>
+    <string name="profiles_delete_action">Delete</string>
+    <string name="profiles_basic_info_title">Device Information</string>
+    <string name="profiles_basic_info_description">Configure your device name, model, and optional Bluetooth pairing.</string>
+    <string name="profiles_signal_quality_title">Minimum Signal Quality</string>
+    <string name="profiles_signal_quality_description">Only detect devices with signal strength above this threshold. Lower values increase detection range but may cause false positives. Don\'t set this too high - Bluetooth reception is generally poor and varies with distance and obstacles.</string>
+    <string name="profiles_identitykey_label">Identity Key</string>
+    <string name="profiles_maindevice_identitykey_explanation">Identifies your earbuds. Pair and connect them on this phone so the app can try to obtain the key. Automatic takeover waits for identity verification. Existing keys can also be imported.</string>
+    <string name="profiles_maindevice_encryptionkey_label">Encryption Key</string>
+    <string name="profiles_maindevice_encryptionkey_explanation">AirPods send a status message, part of which is encrypted. The encryption key allows PodBridge to decrypt the full message. You need one-time access to a MacBook.</string>
+    <string name="profiles_key_invalid_format">Invalid key format</string>
+    <string name="profiles_key_expected_format">Expected format: %1$s</string>
+    <string name="profiles_key_status_configured">Configured</string>
+    <string name="profiles_key_status_not_set">Not set</string>
+    <string name="profiles_signal_quality_min_label">Off</string>
+    <string name="profiles_signal_quality_max_label">Strict</string>
+    <string name="profiles_priority_hint">Profile order determines priority. Drag profiles to reorder them - profiles higher in the list take precedence when multiple devices match.</string>
+
+    <!-- Theme Mode -->
+    <string name="ui_theme_mode_label">Theme mode</string>
+    <string name="ui_theme_mode_system_label">System</string>
+    <string name="ui_theme_mode_dark_label">Dark</string>
+    <string name="ui_theme_mode_light_label">Light</string>
+
+    <!-- Theme Style -->
+    <string name="ui_theme_style_label">Theme style</string>
+    <string name="ui_theme_style_default_label">Default</string>
+    <string name="ui_theme_style_materialyou_label">Material You</string>
+    <string name="ui_theme_style_medium_contrast_label">Medium contrast</string>
+    <string name="ui_theme_style_high_contrast_label">High contrast</string>
+
+    <!-- Theme Color -->
+    <string name="ui_theme_color_label">Theme color</string>
+    <string name="ui_theme_color_blue_label">Blue</string>
+    <string name="ui_theme_color_green_label">Green</string>
+    <string name="ui_theme_color_amber_label">Amber</string>
+    <string name="ui_theme_color_disabled_materialyou">Uses wallpaper colors</string>
+
+    <!-- Settings categories -->
+    <string name="settings_category_appearance_label">Appearance</string>
+
+    <!-- Unsaved changes dialog -->
+    <string name="general_unsaved_changes_title">Unsaved Changes</string>
+    <string name="general_unsaved_changes_message">You have unsaved changes. What would you like to do?</string>
+    <string name="general_save_and_exit_action">Save &amp; Exit</string>
+    <string name="general_discard_action">Discard</string>
+
+    <!-- Short recording warning -->
+    <string name="debug_debuglog_short_recording_title">Recording too short</string>
+    <string name="debug_debuglog_short_recording_message">A debug log needs to capture the issue while it happens. Keep recording, reproduce the problem, then stop the recording.</string>
+    <string name="debug_debuglog_short_recording_continue">Continue recording</string>
+    <string name="debug_debuglog_short_recording_stop">Stop anyway</string>
+
+    <!-- Recorder screen -->
+    <string name="debug_debuglog_screen_title">Debug Log</string>
+    <string name="debug_debuglog_screen_subtitle">Export debug information for troubleshooting</string>
+    <string name="debug_debuglog_screen_sensitive_title">Sensitive Information</string>
+    <string name="debug_debuglog_screen_session_path_label">Session Path</string>
+    <string name="debug_debuglog_screen_log_files_label">Log Files</string>
+    <plurals name="debug_debuglog_screen_log_files_ready">
+        <item quantity="one">%1$d file ready (%2$s)</item>
+        <item quantity="other">%1$d files ready (%2$s)</item>
+    </plurals>
+    <string name="debug_debuglog_screen_discard_action">Delete</string>
+    <string name="debug_debuglog_screen_keep_action">Keep</string>
+
+    <!-- Log management -->
+    <plurals name="support_debuglog_folder_summary">
+        <item quantity="one">%1$d debug log (%2$s)</item>
+        <item quantity="other">%1$d debug logs (%2$s)</item>
+    </plurals>
+    <string name="support_debuglog_clear_action">Clear stored debug logs</string>
+    <string name="support_debuglog_sessions_label">Debug sessions</string>
+    <string name="support_debuglog_sessions_desc">Manage recorded debug log sessions</string>
+    <string name="support_debuglog_sessions_empty">No debug sessions</string>
+    <string name="support_debuglog_session_recording">Recording…</string>
+    <string name="support_debuglog_session_compressing">Compressing…</string>
+    <string name="support_debuglog_session_delete_title">Delete session?</string>
+    <string name="support_debuglog_session_delete_message">This debug session will be permanently deleted.</string>
+    <string name="support_debuglog_clear_all_message">All debug sessions will be permanently deleted.</string>
+    <string name="support_debuglog_failed_empty_log">Failed: log file is empty</string>
+    <string name="support_debuglog_failed_missing_log">Failed: log file is missing</string>
+    <string name="support_debuglog_failed_corrupt_zip">Failed: zip file is corrupt</string>
+    <string name="support_debuglog_failed_zip_failed">Failed: compression failed</string>
+
+    <!-- Contact form -->
+    <string name="support_contact_label">Contact developer</string>
+    <string name="support_contact_desc">Fill out a form to send the developer an email.</string>
+    <string name="support_contact_welcome">I read every message myself and do my best to reply, but since I work on this alone, it can take a little time. Thanks for your patience.</string>
+    <string name="support_contact_footer">Your message will be sent via email. Device and setup information is attached automatically. You can attach screenshots or a video to the email. Some parts of the email will be in English so the developer can easily understand it.</string>
+    <string name="support_contact_category_label">Category</string>
+    <string name="support_contact_category_question_label">Question</string>
+    <string name="support_contact_category_feature_label">Feature request</string>
+    <string name="support_contact_category_bug_label">Bug report</string>
+    <string name="support_contact_description_label">Description</string>
+    <string name="support_contact_description_question_hint">Describe your question in detail. Please be specific.</string>
+    <string name="support_contact_description_feature_hint">Describe the feature you would like to see. Please be specific.</string>
+    <string name="support_contact_description_bug_hint">Describe what happened and how to reproduce the issue. Please be specific.</string>
+    <string name="support_contact_expected_label">Expected behavior</string>
+    <string name="support_contact_expected_hint">Describe what you expected to happen.</string>
+    <plurals name="support_contact_word_count">
+        <item quantity="one">%1$d / %2$d word</item>
+        <item quantity="other">%1$d / %2$d words</item>
+    </plurals>
+    <string name="support_contact_debuglog_label">Debug log</string>
+    <string name="support_contact_debuglog_picker_hint">Attach an existing debug log, or record a new one.</string>
+    <string name="support_contact_debuglog_picker_empty">No debug logs found. Record one first.</string>
+    <string name="support_contact_debuglog_zip_error">Failed to compress debug log</string>
+    <string name="support_contact_send_action">Open email app</string>
+    <string name="support_contact_no_email_app">No email app found on this device.</string>
+    <string name="support_contact_debuglog_delete_title">Delete debug log?</string>
+    <string name="support_contact_debuglog_delete_message">This debug log will be permanently deleted.</string>
+
+    <!-- Post-share confirmation -->
+    <string name="support_debuglog_sent_title">Log sent?</string>
+    <string name="support_debuglog_sent_message">Was the debug log sent successfully? The log will be deleted.</string>
+    <string name="support_contact_sent_title">Email sent?</string>
+    <string name="support_contact_sent_message">Was the email sent successfully? The attached debug log will be deleted.</string>
+
+    <!-- Device Settings -->
+    <string name="device_settings_title">Device Settings</string>
+    <string name="device_settings_subtitle_profile_prefix">Profile: %s</string>
+    <string name="device_settings_info_bt_name_label">Bluetooth Device Label</string>
+    <string name="device_settings_info_model_label">Model</string>
+    <string name="device_settings_info_manufacturer_label">Manufacturer</string>
+    <string name="device_settings_info_hardware_label">Hardware</string>
+    <string name="device_settings_info_serial_label">Serial Number</string>
+    <string name="device_settings_info_firmware_label">Firmware</string>
+    <string name="device_settings_info_firmware_pending_label">Pending Firmware</string>
+    <string name="device_settings_info_build_label">Build</string>
+    <string name="device_settings_info_left_serial_label">Left Pod Serial</string>
+    <string name="device_settings_info_right_serial_label">Right Pod Serial</string>
+    <string name="device_settings_info_left_bonded_label">Left Bonded</string>
+    <string name="device_settings_info_right_bonded_label">Right Bonded</string>
+    <string name="device_settings_info_battery_health_label">Estimated listening time</string>
+    <string name="device_settings_info_battery_health_left_label">Left pod listening time</string>
+    <string name="device_settings_info_battery_health_right_label">Right pod listening time</string>
+    <string name="device_settings_info_battery_health_value">~%1$d%% of rated</string>
+    <string name="device_settings_info_battery_health_pending">Still determining, check back later</string>
+    <string name="device_settings_battery_runtime_warning_title">Listening time is much shorter than rated</string>
+    <string name="device_settings_battery_runtime_warning_description">%1$s: about %2$d%% of the rated listening time. Tap for details.</string>
+    <string name="device_settings_battery_runtime_warning_headset_label">These headphones</string>
+    <string name="device_settings_info_details_label">Device Details</string>
+    <string name="device_settings_info_details_action">Show device details</string>
+    <string name="device_settings_info_status_label">Status</string>
+    <string name="device_settings_info_last_seen_label">Last Seen</string>
+    <string name="device_settings_info_first_seen_label">First Seen</string>
+    <string name="device_settings_not_connected_label">Not connected</string>
+    <string name="device_settings_not_connected_description">This device is nearby but not connected to this phone. Connect to access settings and controls.</string>
+    <string name="device_settings_not_connected_connect_action">Connect</string>
+    <string name="device_settings_not_connected_open_settings_action">Open Bluetooth Settings</string>
+    <string name="device_settings_not_nearby_label">Device not nearby</string>
+    <string name="device_settings_not_nearby_description">Settings are only available when this device is nearby and connected to your phone.</string>
+    <string name="device_settings_aap_unavailable_label">Advanced settings unavailable</string>
+    <string name="device_settings_aap_unavailable_description">Advanced AirPods settings require a Bluetooth feature that is not available on this phone. This may be resolved by a future Android update from your device manufacturer.</string>
+    <string name="device_settings_aap_unavailable_action">View compatibility tracker</string>
+    <string name="device_settings_category_sound_label">Sound</string>
+    <string name="device_settings_category_controls_label">Controls</string>
+    <string name="device_settings_nc_one_airpod_label">ANC with one pod</string>
+    <string name="device_settings_nc_one_airpod_description">Keep noise cancellation active with only one AirPod</string>
+    <string name="device_settings_personalized_volume_label">Personalized Volume</string>
+    <string name="device_settings_personalized_volume_description">Adjust media volume based on environment</string>
+    <string name="device_settings_conversation_awareness_description">Lower media volume and reduce noise when someone speaks to you</string>
+    <string name="device_settings_tone_volume_label">Chime Volume</string>
+    <string name="device_settings_tone_volume_description">Volume of confirmation sounds and ringtones</string>
+    <string name="device_settings_adaptive_noise_label">Adaptive Audio Noise</string>
+    <string name="device_settings_adaptive_noise_description">How much environmental noise is allowed through</string>
+    <string name="device_settings_adaptive_noise_requires_adaptive">Requires Adaptive noise control</string>
+    <string name="device_settings_pending_info">Changes take effect when AirPods are in ear</string>
+    <string name="device_settings_press_speed_label">Press Speed</string>
+    <string name="device_settings_press_speed_description">How quickly you need to press for multi-press gestures</string>
+    <string name="device_settings_press_speed_default">Default</string>
+    <string name="device_settings_press_speed_slower">Slower</string>
+    <string name="device_settings_press_speed_slowest">Slowest</string>
+    <string name="device_settings_press_hold_label">Press and Hold Duration</string>
+    <string name="device_settings_press_hold_description">How long to press and hold to switch noise control modes</string>
+    <string name="device_settings_press_hold_default">Default</string>
+    <string name="device_settings_press_hold_shorter">Shorter</string>
+    <string name="device_settings_press_hold_shortest">Shortest</string>
+    <string name="device_settings_volume_swipe_label">Volume Swipe</string>
+    <string name="device_settings_volume_swipe_description">Swipe to adjust volume</string>
+    <string name="device_settings_volume_swipe_length_label">Volume Swipe Wait Time</string>
+    <string name="device_settings_volume_swipe_length_description">To prevent unintended volume adjustments, choose how long to wait between swipes.</string>
+    <string name="device_settings_volume_swipe_length_default">Default</string>
+    <string name="device_settings_volume_swipe_length_longer">Longer</string>
+    <string name="device_settings_volume_swipe_length_longest">Longest</string>
+    <string name="device_settings_end_call_mute_mic_label">Call Controls</string>
+    <string name="device_settings_end_call_mute_mic_description">Choose what presses do during calls</string>
+    <string name="device_settings_end_call_mute_mic_option_a_title">Single press to end call</string>
+    <string name="device_settings_end_call_mute_mic_option_a_subtitle">Double press to mute microphone</string>
+    <string name="device_settings_end_call_mute_mic_option_b_title">Single press to mute microphone</string>
+    <string name="device_settings_end_call_mute_mic_option_b_subtitle">Double press to end call</string>
+    <string name="device_settings_open_cd">Open device settings</string>
+    <string name="overview_card_missing_paired_device">This profile has no paired Bluetooth device.</string>
+    <string name="overview_card_missing_paired_device_consequence">Without one, device settings and auto-connect aren\'t available.</string>
+    <string name="overview_reactions_hint_title">Reactions are per device</string>
+    <string name="overview_reactions_hint_body">Auto-play, auto-pause and pop-ups are now configured per device. Tap the settings icon on a card while your headphones are connected.</string>
+    <string name="review_app_review_action">Review</string>
+    <string name="review_app_dismiss_action">Maybe later</string>
+    <string name="review_app_body">Would you like to leave PodBridge a review? ❤️</string>
+
+    <!-- New device settings -->
+    <string name="device_settings_microphone_mode_label">Microphone</string>
+    <string name="device_settings_microphone_mode_description">Which earbud is used as the microphone</string>
+    <string name="device_settings_microphone_mode_auto">Auto</string>
+    <string name="device_settings_microphone_mode_right">Right</string>
+    <string name="device_settings_microphone_mode_left">Left</string>
+    <string name="device_settings_noise_control_current_mode_label">Current mode</string>
+    <string name="device_settings_listening_mode_cycle_label">Long-press cycle</string>
+    <string name="device_settings_listening_mode_cycle_description">Choose which modes are available when holding the stem and in the quick switcher.</string>
+    <string name="device_settings_listening_mode_cycle_dialog_title">Customize Long-Press Cycle</string>
+    <string name="device_settings_listening_mode_cycle_summary_helper">Used when holding the stem and in the quick switcher</string>
+    <string name="device_settings_listening_mode_cycle_summary_helper_override">Used in the quick switcher. A custom stem long-press action overrides AirPods cycling.</string>
+    <string name="device_settings_listening_mode_cycle_minimum">At least 2 modes must stay enabled.</string>
+    <string name="device_settings_listening_mode_cycle_off">Off</string>
+    <string name="device_settings_listening_mode_cycle_anc">Noise Cancellation</string>
+    <string name="device_settings_listening_mode_cycle_transparency">Transparency</string>
+    <string name="device_settings_listening_mode_cycle_adaptive">Adaptive</string>
+    <string name="device_settings_allow_off_label">Allow Off mode</string>
+    <string name="device_settings_allow_off_description">Allow Off as a selectable noise control mode. When disabled, stems skip Off while cycling.</string>
+    <string name="device_settings_sleep_detection_label">Sleep Detection</string>
+    <string name="device_settings_sleep_detection_description">Automatically pause audio when you fall asleep</string>
+    <string name="reaction_sleep_channel_label">Sleep Detection</string>
+    <string name="reaction_sleep_notification_title">Paused by Sleep Detection</string>
+    <string name="reaction_sleep_notification_text">%1$s reported you fell asleep, so your music was paused. You can disable this in the device settings.</string>
+    <string name="reaction_charged_channel_label">Charged Notification</string>
+    <string name="reaction_charged_notification_title">Charging complete</string>
+    <string name="reaction_charged_notification_text_full">%1$s is fully charged.</string>
+    <string name="reaction_charged_notification_text_partial">%1$s has been charged to %2$d%%.</string>
+    <string name="reaction_caselow_channel_label">Case battery reminder</string>
+    <string name="reaction_caselow_notification_title">Charge your case</string>
+    <string name="reaction_caselow_notification_text">%1$s: case battery is at %2$d%%.</string>
+    <string name="device_settings_rename_label">Rename</string>
+    <string name="device_settings_rename_hint">Device name</string>
+    <string name="device_settings_rename_confirm">Rename</string>
+    <string name="device_settings_rename_invalid_ascii">Only ASCII characters are supported</string>
+    <string name="device_settings_rename_system_unavailable_title">Rename incomplete</string>
+    <string name="device_settings_rename_system_unavailable">Android didn\'t let us rename the device here. To update the name in Bluetooth settings, rename it there or re-pair the device.</string>
+    <string name="device_settings_rename_system_unavailable_bt_settings_action">Bluetooth Settings</string>
+    <string name="device_settings_send_failed">Could not apply setting: %1$s</string>
+    <string name="device_settings_anc_off_rejected_message">Off mode isn\'t enabled on this device. Enable \"Allow Off mode\" under Noise Control.</string>
+    <string name="anc_mode_not_confirmed_message">The AirPods didn\'t confirm the listening mode change.</string>
+    <string name="device_settings_category_battery_label">Battery</string>
+    <string name="device_settings_charge_cap_label">Optimized Charge Limit</string>
+    <string name="device_settings_charge_cap_description">Learn your routine and pause charging around 80%% to extend battery life, topping the pods off before you\'re likely to use them.</string>
+    <string name="device_settings_charge_cap_rejected_message">Optimized Charge Limit couldn\'t be changed. This is an experimental feature — please report if it keeps failing.</string>
+    <string name="device_settings_category_connections_label">Connected Devices</string>
+    <string name="device_settings_connected_devices_description">Other devices currently connected to these AirPods</string>
+    <string name="device_settings_connected_device_label">Device %d</string>
+    <string name="device_settings_connected_device_call">In a call</string>
+    <string name="device_settings_connected_device_media">Playing media</string>
+
+    <string name="device_settings_noise_control_label">Noise Control</string>
+    <string name="device_settings_eq_label">Equalizer</string>
+
+    <!-- Press Controls -->
+    <string name="press_controls_title">Press Controls</string>
+    <string name="press_controls_nav_description">Tune press behaviour and map presses to actions</string>
+    <string name="press_controls_description">Tune how presses are detected, choose call-button behaviour, and map presses to actions. Mapped actions apply to this device only and let the app intercept the press instead of the headphones handling it natively.</string>
+    <string name="press_controls_single_press">Single Press</string>
+    <string name="press_controls_double_press">Double Press</string>
+    <string name="press_controls_triple_press">Triple Press</string>
+    <string name="press_controls_long_press">Long Press</string>
+    <string name="press_controls_long_press_anc_cycle_info">Assigning a long-press action also disables cycling Noise Control modes (e.g. Noise Cancellation, Transparency) by pressing and holding on the AirPods.</string>
+    <string name="press_controls_mappings_section_title">Press Mappings</string>
+    <string name="press_controls_left">Left</string>
+    <string name="press_controls_right">Right</string>
+    <string name="press_action_none">Default</string>
+    <string name="press_action_no_action">No Action</string>
+    <string name="press_action_play_pause">Play/Pause</string>
+    <string name="press_action_next_track">Next Track</string>
+    <string name="press_action_previous_track">Previous Track</string>
+    <string name="press_action_volume_up">Volume Up</string>
+    <string name="press_action_volume_down">Volume Down</string>
+    <string name="press_action_mute_toggle">Mute Music</string>
+    <string name="press_action_stop">Stop</string>
+    <string name="press_action_fast_forward">Fast Forward</string>
+    <string name="press_action_rewind">Rewind</string>
+    <string name="press_action_cycle_anc">Cycle Noise Control</string>
+    <string name="press_action_toggle_anc_transparency">Toggle Transparency</string>
+    <string name="press_controls_reset_label">Reset to defaults</string>
+    <string name="press_controls_reset_confirm_message">Reset all press mappings to defaults?</string>
+    <string name="device_settings_noise_control_open_press_controls_action">Open Press Controls</string>
+
+    <string name="general_navigate_up_action">Navigate up</string>
+    <string name="general_progress_loading">Loading</string>
+    <string name="settings_monitor_live_battery_label">Show live earbud battery in notifications</string>
+    <string name="settings_monitor_live_battery_description">Turning this off reduces notification updates. Monitoring and auto-connect remain active.</string>
+    <string name="monitor_notification_running">Background monitoring is running</string>
+</resources>

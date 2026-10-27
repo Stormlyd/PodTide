@@ -1,0 +1,31 @@
+*.iml
+.gradle
+/local.properties
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+/.idea/**/*
+!/.idea/codeStyles/
+!/.idea/codeStyles/**/*
+*.jks
+.local/*
+/fastlane/report.xml
+/fastlane/Appfile
+/fastlane/README.md
+.kotlin
+# Screenshot test reference images (ephemeral, regenerated on demand)
+app/src/screenshotTest*/reference/
+# Play Store phone screenshots: commit only en-US.
+# Full localization is uploaded by occasional manual regen + screenshots_only;
+# Play Store retains previously-uploaded screenshots for locales not pushed.
+fastlane/metadata/android/*/images/phoneScreenshots/*.png
+!fastlane/metadata/android/en-US/images/phoneScreenshots/*.png
+.codex
+protocol-research/
+_site/
+.jekyll-cache/
+vendor/bundle/
+/.pi/*
+!/.pi/settings.json

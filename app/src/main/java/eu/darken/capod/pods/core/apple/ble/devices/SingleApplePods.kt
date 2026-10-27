@@ -1,0 +1,30 @@
+package eu.darken.capod.pods.core.apple.ble.devices
+
+import eu.darken.capod.common.debug.logging.log
+import eu.darken.capod.common.lowerNibble
+import eu.darken.capod.pods.core.apple.ble.SingleBlePodSnapshot
+import eu.darken.capod.common.debug.logging.logTag
+
+/**
+ * Devices that only present a single charge level, e.g. most Beats devices
+ */
+interface SingleApplePods : ApplePods, SingleBlePodSnapshot, HasAppleColor {
+
+    override val batteryHeadsetPercent: Float?
+        get() {
+            payload.private?.asBatteryState(1)?.let {
+                return it.level
+            }
+            return when (val value = pubPodsBattery.lowerNibble.toInt()) {
+                15 -> null
+                else -> if (value > 10) {
+                    log(TAG) { "Headset above 100% battery: $value" }
+                    1.0f
+                } else {
+                    (value / 10f)
+                }
+            }
+        }
+}
+
+private val TAG = logTag("Pod", "Apple", "SingleApplePods")

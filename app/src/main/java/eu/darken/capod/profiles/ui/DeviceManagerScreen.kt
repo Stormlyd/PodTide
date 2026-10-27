@@ -1,0 +1,294 @@
+package eu.darken.capod.profiles.ui
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.twotone.ArrowBack
+import androidx.compose.material.icons.twotone.Add
+import androidx.compose.material.icons.twotone.DragHandle
+import androidx.compose.material.icons.twotone.Tune
+import androidx.compose.material3.Card
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedIconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import eu.darken.capod.R
+import eu.darken.capod.common.compose.Preview2
+import eu.darken.capod.common.compose.PreviewWrapper
+import eu.darken.capod.common.compose.ReorderableAutoScroll
+import eu.darken.capod.common.compose.plus
+import eu.darken.capod.common.compose.preview.MockPodDataProvider
+import eu.darken.capod.common.compose.reorderableItemModifier
+import eu.darken.capod.common.compose.rememberReorderableState
+import eu.darken.capod.common.error.ErrorEventHandler
+import eu.darken.capod.common.navigation.NavigationEventHandler
+import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.profiles.core.DeviceProfile
+import eu.darken.capod.profiles.core.ProfileId
+
+@Composable
+fun DeviceManagerScreenHost(vm: DeviceManagerViewModel = hiltViewModel()) {
+    ErrorEventHandler(vm)
+    NavigationEventHandler(vm)
+
+    val state by vm.state.collectAsStateWithLifecycle(initialValue = null)
+    state?.let {
+        DeviceManagerScreen(
+            state = it,
+            onBack = { vm.navUp() },
+            onAddDevice = { vm.onAddDevice() },
+            onEditProfile = { profile -> vm.onEditProfile(profile) },
+            onDeviceSettings = { profile -> vm.onDeviceSettings(profile) },
+            onReorder = { ids -> vm.onReorder(ids) },
+        )
+    }
+}
+
+@Composable
+fun DeviceManagerScreen(
+    state: DeviceManagerViewModel.State,
+    onBack: () -> Unit,
+    onAddDevice: () -> Unit,
+    onEditProfile: (DeviceProfile) -> Unit,
+    onDeviceSettings: (DeviceProfile) -> Unit = {},
+    onReorder: (List<ProfileId>) -> Unit = {},
+) {
+    val lazyListState = rememberLazyListState()
+    val reorderableState = rememberReorderableState(lazyListState, state.profiles) { it.id }
+
+    LaunchedEffect(state.profiles) {
+        reorderableState.syncItems(state.profiles)
+    }
+
+    ReorderableAutoScroll(reorderableState)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(text = stringResource(R.string.settings_devices_label)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.TwoTone.ArrowBack,
+                            contentDescription = null,
+                        )
+                    }
+                },
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = onAddDevice) {
+                Icon(
+                    imageVector = Icons.TwoTone.Add,
+                    contentDescription = stringResource(R.string.profiles_add_action),
+                )
+            }
+        },
+    ) { innerPadding ->
+        if (state.profiles.isEmpty()) {
+            EmptyState(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                onAddDevice = onAddDevice,
+            )
+        } else {
+            val showDragHandles = reorderableState.items.size >= 2
+            LazyColumn(
+                state = lazyListState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = innerPadding + PaddingValues(bottom = 88.dp),
+            ) {
+                itemsIndexed(
+                    items = reorderableState.items,
+                    key = { _, profile -> profile.id },
+                ) { index, profile ->
+                    val isDraggingThis = reorderableState.draggedIndex == index
+                    ProfileRow(
+                        modifier = Modifier
+                            .then(if (!isDraggingThis) Modifier.animateItem() else Modifier)
+                            .then(
+                                reorderableItemModifier(
+                                    state = reorderableState,
+                                    index = index,
+                                    item = profile,
+                                    enabled = showDragHandles,
+                                    onReorder = { reordered -> onReorder(reordered.map { it.id }) },
+                                )
+                            ),
+                        profile = profile,
+                        onClick = { if (!reorderableState.isDragging) onEditProfile(profile) },
+                        onDeviceSettings = { onDeviceSettings(profile) },
+                        showDragHandle = showDragHandles,
+                    )
+                }
+
+                if (state.profiles.size >= 2) {
+                    item {
+                        PriorityHint()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Preview2
+@Composable
+private fun DeviceManagerScreenWithProfilesPreview() = PreviewWrapper {
+    DeviceManagerScreen(
+        state = DeviceManagerViewModel.State(
+            profiles = listOf(
+                MockPodDataProvider.profile("Work AirPods", PodModel.AIRPODS_PRO2),
+                MockPodDataProvider.profile("AirPods Max", PodModel.AIRPODS_MAX),
+                MockPodDataProvider.profile("Gym Beats", PodModel.POWERBEATS_PRO),
+            ),
+        ),
+        onBack = {},
+        onAddDevice = {},
+        onEditProfile = {},
+    )
+}
+
+@Preview2
+@Composable
+private fun DeviceManagerScreenEmptyPreview() = PreviewWrapper {
+    DeviceManagerScreen(
+        state = DeviceManagerViewModel.State(profiles = emptyList()),
+        onBack = {},
+        onAddDevice = {},
+        onEditProfile = {},
+    )
+}
+
+@Composable
+private fun EmptyState(
+    modifier: Modifier = Modifier,
+    onAddDevice: () -> Unit,
+) {
+    Column(
+        modifier = modifier.padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = stringResource(R.string.profiles_empty_title),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.profiles_empty_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                TextButton(onClick = onAddDevice) {
+                    Icon(
+                        imageVector = Icons.TwoTone.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = stringResource(R.string.profiles_add_action))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileRow(
+    modifier: Modifier = Modifier,
+    profile: DeviceProfile,
+    onClick: () -> Unit,
+    onDeviceSettings: () -> Unit = {},
+    showDragHandle: Boolean = false,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(
+            painter = painterResource(profile.model.iconRes),
+            contentDescription = null,
+            modifier = Modifier.size(40.dp),
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = profile.label,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                text = profile.model.label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedIconButton(onClick = onDeviceSettings) {
+            Icon(
+                imageVector = Icons.TwoTone.Tune,
+                contentDescription = stringResource(R.string.device_settings_open_cd),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (showDragHandle) {
+            Icon(
+                imageVector = Icons.TwoTone.DragHandle,
+                contentDescription = stringResource(R.string.profiles_drag_handle_description),
+                modifier = Modifier
+                    .size(48.dp)
+                    .padding(12.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PriorityHint() {
+    Text(
+        text = stringResource(R.string.profiles_priority_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+    )
+}

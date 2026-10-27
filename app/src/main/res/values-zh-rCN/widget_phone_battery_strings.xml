@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_phone_battery_label">手机</string>
+    <string name="widget_phone_battery_switch">显示手机电量</string>
+    <string name="widget_phone_charging_description">正在充电</string>
+</resources>

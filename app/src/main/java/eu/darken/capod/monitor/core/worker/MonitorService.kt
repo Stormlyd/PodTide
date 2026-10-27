@@ -1,0 +1,714 @@
+package eu.darken.capod.monitor.core.worker
+
+import android.annotation.SuppressLint
+import android.app.ForegroundServiceStartNotAllowedException
+import android.app.Notification
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.IBinder
+import dagger.hilt.android.AndroidEntryPoint
+import eu.darken.capod.common.bluetooth.BluetoothAddress
+import eu.darken.capod.common.bluetooth.BluetoothDevice2
+import eu.darken.capod.common.bluetooth.BluetoothManager2
+import eu.darken.capod.common.coroutine.DispatcherProvider
+import eu.darken.capod.common.debug.Bugs
+import eu.darken.capod.common.debug.logging.Logging.Priority.VERBOSE
+import eu.darken.capod.common.debug.logging.Logging.Priority.WARN
+import eu.darken.capod.common.debug.logging.asLog
+import eu.darken.capod.common.debug.logging.log
+import eu.darken.capod.common.debug.logging.logTag
+import eu.darken.capod.common.flow.setupCommonEventHandlers
+import eu.darken.capod.common.flow.throttleLatest
+import eu.darken.capod.common.hasApiLevel
+import eu.darken.capod.main.core.popUpStylePolicy
+import eu.darken.capod.main.core.GeneralSettings
+import eu.darken.capod.main.core.MonitorMode
+import eu.darken.capod.main.core.PermissionTool
+import eu.darken.capod.monitor.core.DeviceMonitor
+import eu.darken.capod.monitor.core.MonitorCoroutineScope
+import eu.darken.capod.monitor.core.battery.BatteryEstimate
+import eu.darken.capod.monitor.core.battery.BatteryEstimator
+import eu.darken.capod.monitor.core.battery.displayKey
+import eu.darken.capod.monitor.core.battery.estimateFor
+import eu.darken.capod.monitor.core.MonitorModeResolver
+import eu.darken.capod.monitor.core.PodDevice
+import eu.darken.capod.monitor.core.ble.BlePodMonitor
+import eu.darken.capod.monitor.ui.MonitorNotifications
+import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
+import eu.darken.capod.pods.core.apple.aap.AapPodState
+import eu.darken.capod.profiles.core.DeviceProfile
+import eu.darken.capod.profiles.core.DeviceProfilesRepo
+import eu.darken.capod.reaction.core.autoconnect.AutoConnect
+import eu.darken.capod.reaction.core.headgesture.HeadGestureController
+import eu.darken.capod.reaction.core.playpause.PlayPause
+import eu.darken.capod.reaction.core.popup.PopUpReaction
+import eu.darken.capod.reaction.core.conversation.ConversationReaction
+import eu.darken.capod.reaction.core.caselow.CaseLowReminderNotifications
+import eu.darken.capod.reaction.core.caselow.CaseLowReminderReaction
+import eu.darken.capod.reaction.core.charged.ChargedReaction
+import eu.darken.capod.reaction.core.charged.ChargedReactionNotifications
+import eu.darken.capod.reaction.core.sleep.SleepReaction
+import eu.darken.capod.reaction.ui.popup.PopUpWindow
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import javax.inject.Inject
+
+@AndroidEntryPoint
+class MonitorService : Service() {
+
+    @Inject lateinit var dispatcherProvider: DispatcherProvider
+    @Inject lateinit var notifications: MonitorNotifications
+    @Inject lateinit var notificationManager: NotificationManager
+    @Inject lateinit var generalSettings: GeneralSettings
+    @Inject lateinit var permissionTool: PermissionTool
+    @Inject lateinit var blePodMonitor: BlePodMonitor
+    @Inject lateinit var deviceMonitor: DeviceMonitor
+    @Inject lateinit var bluetoothManager: BluetoothManager2
+    @Inject lateinit var playPause: PlayPause
+    @Inject lateinit var autoConnect: AutoConnect
+    @Inject lateinit var headGestures: HeadGestureController
+    @Inject lateinit var heartRate: eu.darken.capod.reaction.core.heartrate.HeartRateController
+    @Inject lateinit var popUpReaction: PopUpReaction
+    @Inject lateinit var sleepReaction: SleepReaction
+    @Inject lateinit var chargedReaction: ChargedReaction
+    @Inject lateinit var chargedReactionNotifications: ChargedReactionNotifications
+    @Inject lateinit var caseLowReminderReaction: CaseLowReminderReaction
+    @Inject lateinit var caseLowReminderNotifications: CaseLowReminderNotifications
+    @Inject lateinit var conversationReaction: ConversationReaction
+    @Inject lateinit var popUpWindow: PopUpWindow
+    @Inject lateinit var profilesRepo: DeviceProfilesRepo
+    @Inject lateinit var aapConnectionManager: AapConnectionManager
+    @Inject lateinit var monitorModeResolver: MonitorModeResolver
+    @Inject lateinit var batteryEstimator: BatteryEstimator
+
+    private val monitorScope = MonitorCoroutineScope()
+    private var monitoringJob: Job? = null
+    // Main-thread owned. A retired collection cannot dismiss or update its replacement.
+    private var popupCollectionOwner: Any? = null
+    private val startSignal = MutableStateFlow(0L)
+    @Volatile private var monitorGeneration = 0
+    private var foregroundStartFailed = false
+    private var injectionComplete = false
+    @Volatile private var destroyed = false
+
+    @Volatile private var lastNotification: Notification? = null
+
+    @Volatile
+    private var latestNotificationSettings: NotificationSettings =
+        NotificationSettings(useExtraNotification = false, keepAfterDisconnect = false)
+
+    @SuppressLint("InlinedApi")
+    private fun promoteToForeground(notification: Notification): Boolean {
+        return try {
+            if (hasApiLevel(29)) {
+                startForeground(
+                    MonitorNotifications.NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+                )
+            } else {
+                startForeground(MonitorNotifications.NOTIFICATION_ID, notification)
+            }
+            true
+        } catch (e: IllegalStateException) {
+            @Suppress("NewApi")
+            if (Build.VERSION.SDK_INT >= 31 && e is ForegroundServiceStartNotAllowedException) {
+                log(TAG, WARN) { "Foreground service start denied by OS: ${e.message}" }
+                false
+            } else {
+                throw e
+            }
+        } catch (e: SecurityException) {
+            log(TAG, WARN) { "Foreground service start denied (security): ${e.message}" }
+            false
+        }
+    }
+
+    /**
+     * Posts the primary monitor notification and remembers it, so a later [onStartCommand] can
+     * re-satisfy the foreground obligation with the notification the user is currently seeing.
+     */
+    internal fun postPrimaryNotification(notification: Notification) {
+        if (destroyed) {
+            log(TAG, VERBOSE) { "Skipping notification post, service is being destroyed." }
+            return
+        }
+        lastNotification = notification
+        notificationManager.notify(MonitorNotifications.NOTIFICATION_ID, notification)
+    }
+
+    override fun onCreate() {
+        // Promote to foreground BEFORE Hilt DI (triggered by super.onCreate()) to avoid
+        // ForegroundServiceDidNotStartInTimeException when DI is slow on backgrounded cold starts.
+        MonitorNotifications.ensureChannel(this)
+        if (!promoteToForeground(MonitorNotifications.createEarlyNotification(this))) {
+            foregroundStartFailed = true
+            stopSelf()
+            try {
+                super.onCreate()
+            } catch (e: Exception) {
+                log(TAG, WARN) { "Hilt DI failed in onCreate() (foreground denied): ${e.asLog()}" }
+                Bugs.report(tag = TAG, "Hilt DI failed in onCreate() (foreground denied)", exception = e)
+            }
+            return
+        }
+
+        try {
+            super.onCreate()
+        } catch (e: Exception) {
+            log(TAG, WARN) { "Hilt DI failed in onCreate(), stopping service: ${e.asLog()}" }
+            Bugs.report(tag = TAG, "Hilt DI failed in onCreate()", exception = e)
+            foregroundStartFailed = true
+            stopSelf()
+            return
+        }
+        injectionComplete = true
+        log(TAG, VERBOSE) { "onCreate()" }
+
+        // Replace early notification with the full one from injected MonitorNotifications.
+        // Failure here is non-fatal — the service is already foreground from the early call.
+        val startupNotification = notifications.getStartupNotification()
+        lastNotification = startupNotification
+        promoteToForeground(startupNotification)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Every startForegroundService() re-arms the startForeground() obligation,
+        // so every onStartCommand has to satisfy it again, no matter how it exits.
+        //
+        // Only reuse the cached notification while a monitor session is actually live. It is a fully
+        // built object whose `when` is frozen at build time, so re-promoting it to open a NEW session
+        // would re-post the previous session's last content under its original timestamp — which is
+        // how a stale "unknown device" frame survives a teardown/restart cycle. Rebuilding is not an
+        // option here: this has to stay cheap enough to satisfy the obligation before DI is ready.
+        //
+        // Deliberately does NOT clear the cache here: a collector on Dispatchers.Default can post
+        // between the read below and any write, so clearing would discard a frame that is actually
+        // current. Invalidation happens where a new session is launched instead.
+        val reusable = lastNotification?.takeIf { monitoringJob?.isActive == true }
+        if (!promoteToForeground(reusable ?: MonitorNotifications.createEarlyNotification(this))) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
+        log(TAG, VERBOSE) { "onStartCommand(intent=$intent, flags=$flags, startId=$startId)" }
+
+        if (foregroundStartFailed) {
+            log(TAG, WARN) { "Skipping monitor start, foreground promotion was denied." }
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
+        val forceStart = intent?.getBooleanExtra(EXTRA_FORCE_START, false) ?: false
+
+        if (monitoringJob?.isActive == true && !forceStart) {
+            log(TAG) { "Already monitoring and forceStart=false, keeping current session." }
+            // Fresh evidence of activity: re-arm any pending teardown countdown.
+            startSignal.value++
+            return START_STICKY
+        }
+
+        val generation = ++monitorGeneration
+        retirePopupCollection()
+        monitorScope.coroutineContext.cancelChildren()
+        // A new session starts here, so the previous session's last frame must not be re-promoted
+        // into it. Safe at this point: the old collectors are cancelled and the new ones haven't run,
+        // so there is no current notification to discard.
+        lastNotification = null
+
+        monitoringJob = monitorScope.launch {
+            try {
+                doMonitor(generation)
+            } catch (e: CancellationException) {
+                log(TAG) { "Monitor cancelled." }
+            } catch (e: Exception) {
+                Bugs.report(tag = TAG, "Monitor failed", exception = e)
+            } finally {
+                if (monitorGeneration == generation) {
+                    log(TAG) { "Monitor finished, stopping service." }
+                    stopSelf()
+                } else {
+                    log(TAG) { "Monitor replaced, not stopping service." }
+                }
+            }
+        }
+
+        return START_STICKY
+    }
+
+    private suspend fun doMonitor(generation: Int) {
+        // Seed snapshot eagerly so onDestroy() has correct values even if we abort below.
+        latestNotificationSettings = NotificationSettings(
+            useExtraNotification = generalSettings.showLiveBatteryInNotification.flow.first() && generalSettings.useExtraMonitorNotification.flow.first(),
+            keepAfterDisconnect = generalSettings.keepConnectedNotificationAfterDisconnect.flow.first(),
+            showBatteryInStatusBar = generalSettings.showBatteryInStatusBar.flow.first(),
+        )
+
+        val permissionsMissingOnStart = permissionTool.missingScanPermissions.first()
+        if (permissionsMissingOnStart.isNotEmpty()) {
+            log(TAG, WARN) { "Aborting, missing scan permissions: $permissionsMissingOnStart" }
+            return
+        }
+
+        val deviceFlow = deviceMonitor.primaryDeviceByTier
+            .setupCommonEventHandlers(TAG) { "BlePodMonitor" }
+            .distinctUntilChangedBy { it?.toNotificationKey() }
+            .throttleLatest(1000)
+
+        val notificationSettingsFlow = combine(
+            generalSettings.useExtraMonitorNotification.flow,
+            generalSettings.keepConnectedNotificationAfterDisconnect.flow,
+            generalSettings.showBatteryInStatusBar.flow,
+        ) { useExtra, keepAfter, batteryIcon ->
+            NotificationSettings(
+                useExtraNotification = useExtra,
+                keepAfterDisconnect = keepAfter,
+                showBatteryInStatusBar = batteryIcon,
+            )
+        }
+
+        val monitorJob = generalSettings.showLiveBatteryInNotification.flow.distinctUntilChanged()
+            .flatMapLatest { liveBattery ->
+                if (!liveBattery) {
+                    flow {
+                        latestNotificationSettings = NotificationSettings(false, false)
+                        postPrimaryNotification(notifications.getGenericNotification())
+                        notificationManager.cancel(MonitorNotifications.NOTIFICATION_ID_CONNECTED)
+                        emit(Unit)
+                    }
+                } else {
+                    combine(deviceFlow, notificationSettingsFlow, batteryEstimator.estimates) { currentDevice, settings, estimates ->
+                        NotificationInput(currentDevice, settings, currentDevice?.let { estimates.estimateFor(it) })
+                    }.distinctUntilChangedBy { input ->
+                        Triple(input.device?.toNotificationKey(), input.settings,
+                            input.device?.let { input.estimate?.displayKey(it) })
+                    }.onEach { (currentDevice, settings, estimate) ->
+                        latestNotificationSettings = settings
+                        postPrimaryNotification(notifications.getNotification(
+                            currentDevice, estimate = estimate, showHint = settings.useExtraNotification,
+                            showBatteryInStatusBar = settings.showBatteryInStatusBar,
+                        ))
+                        when (val action = decideExtraNotificationAction(currentDevice, settings)) {
+                            is ExtraNotificationAction.Post -> notificationManager.notify(
+                                MonitorNotifications.NOTIFICATION_ID_CONNECTED,
+                                notifications.getNotificationConnected(action.device, estimate,
+                                    showBatteryInStatusBar = settings.showBatteryInStatusBar),
+                            )
+                            ExtraNotificationAction.Cancel -> notificationManager.cancel(MonitorNotifications.NOTIFICATION_ID_CONNECTED)
+                            ExtraNotificationAction.KeepExisting -> Unit
+                        }
+                    }.let { source -> kotlinx.coroutines.flow.flow { source.collect { emit(Unit) } } }
+                }
+            }
+            .catch { log(TAG, WARN) { "Pod Flow failed:\n${it.asLog()}" } }
+            .launchIn(monitorScope)
+
+        val modeStates = permissionTool.missingScanPermissions
+            .flatMapLatest { missingPermsFlow ->
+                if (missingPermsFlow.isNotEmpty()) {
+                    log(TAG, WARN) { "Aborting, scan permissions are missing: $missingPermsFlow" }
+                    monitorScope.coroutineContext.cancelChildren()
+                    emptyFlow()
+                } else {
+                    combine(
+                        monitorModeResolver.effectiveMode,
+                        profilesRepo.profiles,
+                        bluetoothManager.connectedDevices,
+                        aapConnectionManager.allStates,
+                    ) { mode, profiles, devices, aapStates ->
+                        buildMonitorModeState(mode, profiles, devices, aapStates)
+                    }
+                }
+            }
+            .distinctUntilChanged()
+            .setupCommonEventHandlers(TAG) { "MonitorMode" }
+
+        monitorModeFlow(
+            tag = TAG,
+            modeStates = modeStates,
+            startSignal = startSignal,
+            onTeardown = { monitorScope.coroutineContext.cancelChildren() },
+        )
+            .catch {
+                log(TAG, WARN) { "MonitorMode Flow failed:\n${it.asLog()}" }
+            }
+            .launchIn(monitorScope)
+
+        monitorScope.launch { collectPopupEvents(generation) }
+
+        playPause.monitor()
+            .setupCommonEventHandlers(TAG) { "playPause" }
+            .catch { log(TAG, WARN) { "playPause failed:\n${it.asLog()}" } }
+            .launchIn(monitorScope)
+
+        autoConnect.monitor()
+            .setupCommonEventHandlers(TAG) { "autoConnect" }
+            .catch { log(TAG, WARN) { "autoConnect failed:\n${it.asLog()}" } }
+            .launchIn(monitorScope)
+
+        // Sensor features are deferred for the public release. Do not subscribe here: a saved
+        // enabled gesture preference must not keep an invisible sensor/action collector active.
+
+        sleepReaction.monitor()
+            .setupCommonEventHandlers(TAG) { "sleepReaction" }
+            .catch { log(TAG, WARN) { "sleepReaction failed:\n${it.asLog()}" } }
+            .launchIn(monitorScope)
+
+        chargedReaction.monitor()
+            .onEach { event ->
+                when (event) {
+                    is ChargedReaction.Event.ShowNotification -> chargedReactionNotifications.show(
+                        profileId = event.profileId,
+                        deviceLabel = event.deviceLabel,
+                        thresholdPercent = event.thresholdPercent,
+                    )
+
+                    is ChargedReaction.Event.CancelNotification ->
+                        chargedReactionNotifications.cancel(event.profileId)
+                }
+            }
+            .setupCommonEventHandlers(TAG) { "chargedReaction" }
+            .catch { log(TAG, WARN) { "chargedReaction failed:\n${it.asLog()}" } }
+            .launchIn(monitorScope)
+
+        caseLowReminderReaction.monitor()
+            .onEach { event ->
+                when (event) {
+                    is CaseLowReminderReaction.Event.ShowNotification -> caseLowReminderNotifications.show(
+                        profileId = event.profileId,
+                        deviceLabel = event.deviceLabel,
+                        casePercent = event.casePercent,
+                    )
+
+                    is CaseLowReminderReaction.Event.CancelNotification ->
+                        caseLowReminderNotifications.cancel(event.profileId)
+
+                    is CaseLowReminderReaction.Event.Reconcile ->
+                        caseLowReminderNotifications.cancelAllExcept(event.enabledProfileIds)
+                }
+            }
+            .setupCommonEventHandlers(TAG) { "caseLowReminder" }
+            .catch { log(TAG, WARN) { "caseLowReminder failed:\n${it.asLog()}" } }
+            .launchIn(monitorScope)
+
+        conversationReaction.monitor()
+            .setupCommonEventHandlers(TAG) { "conversationReaction" }
+            .catch { log(TAG, WARN) { "conversationReaction failed:\n${it.asLog()}" } }
+            .launchIn(monitorScope)
+
+        batteryEstimator.monitor()
+            .setupCommonEventHandlers(TAG) { "batteryEstimator" }
+            .catch { log(TAG, WARN) { "batteryEstimator failed:\n${it.asLog()}" } }
+            .launchIn(monitorScope)
+
+        log(TAG, VERBOSE) { "Monitor job is active" }
+        monitorJob.join()
+        log(TAG, VERBOSE) { "Monitor job quit" }
+    }
+
+    private suspend fun collectPopupEvents(generation: Int) {
+        val owner = Any()
+        try {
+            val claimed = withContext(dispatcherProvider.Main) {
+                if (destroyed || monitorGeneration != generation) false
+                else {
+                    popupCollectionOwner = owner
+                    true
+                }
+            }
+            if (!claimed) return
+            coroutineScope {
+                val policyApplied = CompletableDeferred<Unit>()
+                val collectionScope = this
+                val policyJob = launch {
+                    generalSettings.popUpStylePolicy.collect { policy ->
+                        withContext(dispatcherProvider.Main) {
+                            if (!destroyed && monitorGeneration == generation && popupCollectionOwner === owner) {
+                                popUpWindow.applyStylePolicy(policy)
+                                policyApplied.complete(Unit)
+                            }
+                        }
+                    }
+                    // A terminated settings source no longer authorizes an event collector.
+                    collectionScope.cancel("Popup style policy completed")
+                }
+                try {
+                    policyApplied.await()
+                    val eventJob = launch {
+                        popUpReaction.monitor()
+                            .setupCommonEventHandlers(TAG) { "popUpReaction" }
+                            .collect { event ->
+                                withContext(dispatcherProvider.Main) {
+                                    if (!destroyed && monitorGeneration == generation && popupCollectionOwner === owner) {
+                                        when (event) {
+                                            is PopUpReaction.Event.PopupShow -> popUpWindow.show(event.device)
+                                            is PopUpReaction.Event.PopupHide -> popUpWindow.close()
+                                        }
+                                    }
+                                }
+                            }
+                    }
+                    // The owner waits cancellably, independent of the event source's finalizers.
+                    eventJob.join()
+                } finally {
+                    // Release before awaiting potentially slow upstream cancellation/finally work.
+                    withContext(dispatcherProvider.Main + NonCancellable) {
+                        if (popupCollectionOwner === owner) retirePopupCollection()
+                    }
+                    policyJob.cancel()
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            log(TAG, WARN) { "popUpReaction failed:\n${error.asLog()}" }
+        } finally {
+            // Cancellation may delay upstream finally blocks. Only the current collection owns
+            // cleanup, and cancellation must not prevent the Main-thread release itself.
+            withContext(dispatcherProvider.Main + NonCancellable) {
+                if (popupCollectionOwner === owner) retirePopupCollection()
+            }
+        }
+    }
+
+    /** Called on Main by service start/destroy and the collection's serialized finally. */
+    private fun retirePopupCollection() {
+        popupCollectionOwner = null
+        if (::popUpWindow.isInitialized) popUpWindow.dismissImmediately()
+    }
+
+    override fun onDestroy() {
+        log(TAG, VERBOSE) { "onDestroy()" }
+        // Set before cancelling: cancellation doesn't await the collectors, so one already past its
+        // suspension point can still reach postPrimaryNotification() and re-post what we just took
+        // down. The flag makes that post a no-op instead.
+        destroyed = true
+        monitorScope.cancel("Service destroyed")
+        retirePopupCollection()
+
+        if (injectionComplete) {
+            try {
+                chargedReactionNotifications.cancelAll()
+            } catch (e: Exception) {
+                log(TAG, WARN) { "Failed to cancel charged notifications: ${e.message}" }
+            }
+            val snapshot = latestNotificationSettings
+            if (!snapshot.useExtraNotification || !snapshot.keepAfterDisconnect) {
+                try {
+                    notificationManager.cancel(MonitorNotifications.NOTIFICATION_ID_CONNECTED)
+                } catch (e: Exception) {
+                    log(TAG, WARN) { "Failed to cancel connected notification: ${e.message}" }
+                }
+            }
+            // Defence in depth: AOSP reaps the FGS notification on destroy by itself (verified on
+            // API 36), but reports of a stuck ongoing notification on Samsung suggest that is not
+            // universal. Retract it explicitly. cancel() alone is not the foreground-service
+            // lifecycle operation and can be ignored while the notification is still bound, so
+            // detach first. Both calls are idempotent.
+            try {
+                stopForeground(Service.STOP_FOREGROUND_REMOVE)
+                notificationManager.cancel(MonitorNotifications.NOTIFICATION_ID)
+            } catch (e: Exception) {
+                log(TAG, WARN) { "Failed to cancel monitor notification: ${e.message}" }
+            }
+        } else {
+            log(TAG, WARN) { "onDestroy: Skipping notification cleanup, injection was incomplete." }
+        }
+
+        super.onDestroy()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    companion object {
+        val TAG = logTag("Monitor", "Service")
+        private const val EXTRA_FORCE_START = "extra.force_start"
+
+        fun intent(context: Context, forceStart: Boolean = false): Intent {
+            return Intent(context, MonitorService::class.java).apply {
+                putExtra(EXTRA_FORCE_START, forceStart)
+            }
+        }
+    }
+}
+
+internal data class MonitorModeState(
+    val mode: MonitorMode,
+    val hasProfiles: Boolean,
+    val knownAddresses: Set<BluetoothAddress>,
+    val connectedAddresses: Set<BluetoothAddress>,
+    val hasAapSession: Boolean,
+)
+
+/**
+ * Decides whether a monitor session may keep running. In [MonitorMode.AUTOMATIC] with nothing
+ * connected the teardown runs [timeoutMillis] after the state was seen.
+ *
+ * [startSignal] is bumped by a start request that found a live session and short-circuited. The
+ * bump restarts this flow, arming a fresh window, and the pre-teardown re-check covers the case
+ * where the bump lands while the expired countdown is already unwinding.
+ */
+internal fun monitorModeFlow(
+    tag: String,
+    modeStates: Flow<MonitorModeState>,
+    startSignal: StateFlow<Long>,
+    timeoutMillis: Long = 15 * 1000,
+    onTeardown: () -> Unit,
+): Flow<Unit> = combine(modeStates, startSignal) { state, signal ->
+    state to signal
+}.flatMapLatest { (state, armedSignal) ->
+    log(tag) { "Monitor mode: ${state.mode}" }
+    log(tag) { "connectedAddresses: ${state.connectedAddresses}" }
+    log(tag) { "knownAddresses: ${state.knownAddresses}" }
+
+    when (state.mode) {
+        MonitorMode.MANUAL -> flow<Unit> {
+            onTeardown()
+        }
+
+        MonitorMode.ALWAYS -> emptyFlow()
+        MonitorMode.AUTOMATIC -> flow {
+            when {
+                !state.hasProfiles && state.connectedAddresses.isNotEmpty() -> {
+                    log(tag, WARN) { "Main device address not set, staying alive while any is connected" }
+                }
+
+                state.knownAddresses.any { it in state.connectedAddresses } || state.hasAapSession -> {
+                    log(tag) { "A device is connected, aborting any timeout." }
+                }
+
+                else -> {
+                    log(tag) { "No known Pods are connected, stopping service soon." }
+                    delay(timeoutMillis)
+
+                    if (startSignal.value != armedSignal) {
+                        log(tag) { "A start request arrived during the timeout, staying alive." }
+                        return@flow
+                    }
+                    log(tag) { "Stopping service now, still no Pods connected." }
+
+                    onTeardown()
+                }
+            }
+        }
+    }
+}
+
+internal fun buildMonitorModeState(
+    mode: MonitorMode,
+    profiles: List<DeviceProfile>,
+    devices: Collection<BluetoothDevice2>,
+    aapStates: Map<BluetoothAddress, AapPodState>,
+): MonitorModeState = MonitorModeState(
+    mode = mode,
+    hasProfiles = profiles.isNotEmpty(),
+    knownAddresses = profiles.mapNotNull { it.address }.toSet(),
+    connectedAddresses = devices.map { it.address }.toSet(),
+    hasAapSession = aapStates.isNotEmpty(),
+)
+
+internal data class NotificationInput(
+    val device: PodDevice?,
+    val settings: NotificationSettings,
+    val estimate: BatteryEstimate?,
+)
+
+private data class NotificationDeviceKey(
+    val profileId: String?,
+    val label: String?,
+    val model: PodModel,
+    val isLive: Boolean,
+    val hasDualPods: Boolean,
+    val hasCase: Boolean,
+    val hasEarDetection: Boolean,
+    val batteryLeft: Float?,
+    val batteryRight: Float?,
+    val batteryCase: Float?,
+    val batteryHeadset: Float?,
+    val isLeftPodCharging: Boolean?,
+    val isRightPodCharging: Boolean?,
+    val isCaseCharging: Boolean?,
+    val isHeadsetBeingCharged: Boolean?,
+    val isLeftInEar: Boolean?,
+    val isRightInEar: Boolean?,
+    val isBeingWorn: Boolean?,
+    val batteryEstimateEnabled: Boolean,
+    val iconRes: Int,
+    val leftPodIcon: Int,
+    val rightPodIcon: Int,
+    val caseIcon: Int,
+)
+
+private fun PodDevice.toNotificationKey(): NotificationDeviceKey = NotificationDeviceKey(
+    profileId = profileId,
+    label = label,
+    model = model,
+    isLive = isLive,
+    hasDualPods = hasDualPods,
+    hasCase = hasCase,
+    hasEarDetection = hasEarDetection,
+    batteryLeft = batteryLeft,
+    batteryRight = batteryRight,
+    batteryCase = batteryCase,
+    batteryHeadset = batteryHeadset,
+    isLeftPodCharging = isLeftPodCharging,
+    isRightPodCharging = isRightPodCharging,
+    isCaseCharging = isCaseCharging,
+    isHeadsetBeingCharged = isHeadsetBeingCharged,
+    isLeftInEar = isLeftInEar,
+    isRightInEar = isRightInEar,
+    isBeingWorn = isBeingWorn,
+    batteryEstimateEnabled = batteryEstimateEnabled,
+    iconRes = iconRes,
+    leftPodIcon = leftPodIcon,
+    rightPodIcon = rightPodIcon,
+    caseIcon = caseIcon,
+)
+
+internal data class NotificationSettings(
+    val useExtraNotification: Boolean,
+    val keepAfterDisconnect: Boolean,
+    val showBatteryInStatusBar: Boolean = false,
+)
+
+internal sealed interface ExtraNotificationAction {
+    object Cancel : ExtraNotificationAction
+    data class Post(val device: PodDevice) : ExtraNotificationAction
+    object KeepExisting : ExtraNotificationAction
+}
+
+internal fun decideExtraNotificationAction(
+    device: PodDevice?,
+    settings: NotificationSettings,
+): ExtraNotificationAction = when {
+    !settings.useExtraNotification -> ExtraNotificationAction.Cancel
+    device != null && device.isLive -> ExtraNotificationAction.Post(device)
+    settings.keepAfterDisconnect -> ExtraNotificationAction.KeepExisting
+    else -> ExtraNotificationAction.Cancel
+}

@@ -1,0 +1,12 @@
+<resources>
+    <string name="popup_audio_connected">音频已连接</string>
+    <string name="popup_device_detected">已检测到设备</string>
+    <string name="popup_left">左耳</string>
+    <string name="popup_case">充电盒</string>
+    <string name="popup_right">右耳</string>
+    <string name="popup_headset">耳机</string>
+    <string name="popup_battery_missing">—</string>
+    <string name="popup_battery_unknown">电量暂不可用</string>
+    <string name="popup_charging">正在充电</string>
+    <string name="popup_unknown_device">暂无法获取此设备的电量信息。</string>
+</resources>

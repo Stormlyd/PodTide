@@ -1,0 +1,91 @@
+package eu.darken.capod.monitor.core.battery
+
+import eu.darken.capod.monitor.core.BatteryReading
+import eu.darken.capod.pods.core.apple.PodModel
+import kotlin.math.floor
+
+/** How many more times the case can recharge both earbuds, and how firm that number is. */
+data class CaseCharges(
+    val count: Int,
+    /** The low end of the reading's interval, unrounded — what [count] and [display] are derived from. */
+    val fraction: Float,
+    val display: Display,
+    val adequacy: Adequacy,
+) {
+    enum class Display {
+        /** Nothing left to give — distinct from [LESS_THAN_ONE], which still implies some charge. */
+        EMPTY,
+        LESS_THAN_ONE,
+
+        /** No number at all: an open-ended interval that has not yet reached a full charge. */
+        UNCERTAIN,
+        AT_LEAST,
+        APPROXIMATE,
+    }
+
+    enum class Adequacy { ENOUGH, NOT_ENOUGH, UNCERTAIN }
+}
+
+/**
+ * Reads a truncating [reading] as the interval `[percent, percent + resolution)` and scales it by
+ * the spec, so a decile source at 20% asks "is 4.0 x 0.20 .. 4.0 x 0.30 above one charge?" rather
+ * than pretending 0.8 is exact. Only an interval that lies wholly on one side of a full charge
+ * makes a claim; anything straddling it is [CaseCharges.Adequacy.UNCERTAIN]. That also absorbs the
+ * bounce between adjacent readings, so no state has to be remembered between frames.
+ *
+ * The interval excludes its upper end, so an upper end of exactly one charge is still short of one.
+ *
+ * A spec that is itself a lower bound has no upper end, so it can never claim "not enough" — except
+ * at an empty reading, where a floor on the published capacity has nothing left to undersell.
+ *
+ * The wording follows the whole interval, not its pessimistic end: an uncertain one rounds to a
+ * single charge, or names no number at all ([CaseCharges.Display.UNCERTAIN]) when the spec is a
+ * lower bound and there is no upper end to round from.
+ *
+ * Null when the model publishes no case figures or the reading is missing or nonsense — the caller
+ * shows no line at all rather than a neutral one.
+ */
+fun caseCharges(spec: PodModel.CaseSpec?, reading: BatteryReading?): CaseCharges? {
+    if (spec == null || !spec.fullPairRecharges.isFinite() || spec.fullPairRecharges <= 0f) return null
+    if (reading == null || !reading.percent.isFinite() || reading.percent < 0f) return null
+
+    val resolution = if (reading.resolution.isFinite() && reading.resolution > 0f) reading.resolution else 0f
+    val lowest = spec.fullPairRecharges * reading.percent
+    val highest = spec.fullPairRecharges * (reading.percent + resolution)
+
+    val adequacy = when {
+        lowest >= 1f -> CaseCharges.Adequacy.ENOUGH
+        reading.percent == 0f -> CaseCharges.Adequacy.NOT_ENOUGH
+        spec.isLowerBound -> CaseCharges.Adequacy.UNCERTAIN
+        highest <= 1f -> CaseCharges.Adequacy.NOT_ENOUGH
+        else -> CaseCharges.Adequacy.UNCERTAIN
+    }
+
+    val floored = floor(lowest).toInt()
+
+    val display = when {
+        reading.percent == 0f -> CaseCharges.Display.EMPTY
+        adequacy == CaseCharges.Adequacy.NOT_ENOUGH -> CaseCharges.Display.LESS_THAN_ONE
+        adequacy == CaseCharges.Adequacy.UNCERTAIN && spec.isLowerBound -> CaseCharges.Display.UNCERTAIN
+        adequacy == CaseCharges.Adequacy.UNCERTAIN -> CaseCharges.Display.APPROXIMATE
+        spec.isLowerBound -> CaseCharges.Display.AT_LEAST
+        else -> CaseCharges.Display.APPROXIMATE
+    }
+
+    val count = when {
+        reading.percent == 0f -> 0
+        adequacy == CaseCharges.Adequacy.NOT_ENOUGH -> 0
+        adequacy == CaseCharges.Adequacy.UNCERTAIN && !spec.isLowerBound -> 1
+        else -> floored
+    }
+
+    return CaseCharges(count = count, fraction = lowest, display = display, adequacy = adequacy)
+}
+
+/**
+ * [CaseCharges.fraction] cut to one decimal instead of rounded, so a case the card calls short of a
+ * full charge can never read "1.0". The epsilon absorbs binary float error only: a 2.0 spec at 35%
+ * lands on 0.69999999 and still has to read 0.7.
+ */
+val CaseCharges.displayFraction: Float
+    get() = floor(fraction * 10f + 1e-4f) / 10f

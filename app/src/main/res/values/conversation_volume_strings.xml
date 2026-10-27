@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_conversation_volume_mode_label">Volume lowering mode</string>
+    <string name="settings_conversation_volume_mode_relative">Reduce from current volume</string>
+    <string name="settings_conversation_volume_mode_absolute">Lower to a fixed target</string>
+    <string name="settings_conversation_volume_target_label">Target volume</string>
+    <string name="settings_conversation_volume_target_description">Percentage of maximum volume. An already lower level stays lower; your original volume is restored when the conversation ends.</string>
+</resources>

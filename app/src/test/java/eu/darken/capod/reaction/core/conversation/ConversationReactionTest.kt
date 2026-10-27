@@ -1,0 +1,1139 @@
+package eu.darken.capod.reaction.core.conversation
+
+import eu.darken.capod.common.MediaControl
+import eu.darken.capod.common.bluetooth.BluetoothAddress
+import eu.darken.capod.monitor.core.DeviceMonitor
+import eu.darken.capod.monitor.core.PodDevice
+import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
+import eu.darken.capod.pods.core.apple.aap.AapPodState
+import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
+import eu.darken.capod.pods.core.apple.aap.protocol.ConversationAwarenessEvent
+import eu.darken.capod.profiles.core.ReactionConfig
+import eu.darken.capod.profiles.core.AppleDeviceProfile
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import testhelpers.BaseTest
+import testhelpers.TestTimeSource
+
+class ConversationReactionTest : BaseTest() {
+
+    private val primaryAddress: BluetoothAddress = "AA:BB:CC:DD:EE:FF"
+    private val otherAddress: BluetoothAddress = "11:22:33:44:55:66"
+
+    private val inEar = AapSetting.EarDetection.PodPlacement.IN_EAR
+    private val outOfEar = AapSetting.EarDetection.PodPlacement.NOT_IN_EAR
+
+    // Mirrors of ConversationReaction's private timing constants. STALE_TIMEOUT: long backstop
+    // while only START frames were seen. WIND_DOWN_TIMEOUT: short fuse armed by a HOLD frame
+    // (wind-down begun, terminal imminent — but sometimes dropped, #608). STOP_SETTLE_DELAY: brief
+    // wait on an uncorroborated cold terminal (no preceding HOLD) before treating it as a real end.
+    private val staleTimeoutMs = 5L * 60 * 1000
+    private val windDownTimeoutMs = 6_000L
+    private val stopSettleMs = 250L
+
+    private lateinit var eventsFlow: MutableSharedFlow<Pair<BluetoothAddress, ConversationAwarenessEvent>>
+    private lateinit var statesFlow: MutableStateFlow<Map<BluetoothAddress, AapPodState>>
+    private lateinit var devicesFlow: MutableStateFlow<List<PodDevice>>
+    private lateinit var aapManager: AapConnectionManager
+    private lateinit var deviceMonitor: DeviceMonitor
+    private lateinit var mediaControl: MediaControl
+    private lateinit var timeSource: TestTimeSource
+
+    private fun mockPodDevice(
+        address: BluetoothAddress,
+        action: ConversationAction,
+        reduction: Int = 50,
+        mode: ConversationVolumeMode = ConversationVolumeMode.RELATIVE_REDUCTION,
+        target: Int = 20,
+        worn: Boolean = true,
+        onePodMode: Boolean = false,
+        eitherInEar: Boolean? = worn,
+    ): PodDevice = mockk(relaxed = true) {
+        every { profileId } returns address
+        every { profileAddress } returns address
+        every { this@mockk.address } returns address
+        every { reactions } returns ReactionConfig(
+            conversationAction = action,
+            conversationVolumeReduction = reduction,
+            conversationVolumeMode = mode,
+            conversationVolumeTarget = target,
+            onePodMode = onePodMode,
+        )
+        every { isBeingWorn } returns worn
+        every { isEitherPodInEar } returns eitherInEar
+    }
+
+    @BeforeEach
+    fun setup() {
+        eventsFlow = MutableSharedFlow(extraBufferCapacity = 16)
+        statesFlow = MutableStateFlow(mapOf(primaryAddress to AapPodState(connectionState = AapPodState.ConnectionState.READY)))
+        devicesFlow = MutableStateFlow(listOf(mockPodDevice(primaryAddress, ConversationAction.LOWER_VOLUME)))
+        aapManager = mockk(relaxed = true) {
+            every { conversationalAwarenessEvents } returns eventsFlow
+            every { allStates } returns statesFlow
+        }
+        deviceMonitor = mockk(relaxed = true) {
+            every { devices } returns devicesFlow
+        }
+        mediaControl = mockk(relaxed = true) {
+            coEvery { sendPause(any()) } returns true
+            every { isPlaying } returns false
+            every { duckMusicVolume(any()) } returns MediaControl.DuckOutcome.Ducked(priorVolume = 10, appliedVolume = 5)
+            every { duckMusicVolumeToTarget(any()) } returns MediaControl.DuckOutcome.Ducked(priorVolume = 10, appliedVolume = 3)
+            every { currentMusicVolume() } returns 5
+        }
+        timeSource = TestTimeSource()
+    }
+
+    // appScope = the test scope so the stale timer runs on the controllable virtual clock.
+    private fun TestScope.launchReaction() = ConversationReaction(
+        aapManager = aapManager,
+        deviceMonitor = deviceMonitor,
+        mediaControl = mediaControl,
+        appScope = this,
+        timeSource = timeSource,
+        profilesRepo = conversationTestProfiles(
+            listOf(devicesFlow.value.single().reactions.let { config ->
+                AppleDeviceProfile(
+                    id = primaryAddress, label = "Primary", address = primaryAddress,
+                    conversationAction = config.conversationAction,
+                    conversationVolumeReduction = config.conversationVolumeReduction,
+                    conversationVolumeMode = config.conversationVolumeMode,
+                    conversationVolumeTarget = config.conversationVolumeTarget,
+                    onePodMode = config.onePodMode,
+                )
+            }),
+            backgroundScope,
+        ),
+    ).monitor().launchIn(this)
+
+    private suspend fun TestScope.emit(address: BluetoothAddress, event: ConversationAwarenessEvent) {
+        eventsFlow.emit(address to event)
+        runCurrent()
+    }
+
+    /**
+     * Seeds the AAP ear-detection snapshot WITHOUT draining the collector. Call before [launchReaction]
+     * to establish a realistic worn baseline so the first pull registers as a real in→out transition
+     * (the very first observation only seeds the baseline, it is not counted as a transition).
+     */
+    private fun setEarDetectionSnapshot(primary: AapSetting.EarDetection.PodPlacement, secondary: AapSetting.EarDetection.PodPlacement) {
+        statesFlow.value = mapOf(
+            primaryAddress to mockk(relaxed = true) {
+                every { connectionState } returns AapPodState.ConnectionState.READY
+                every { aapEarDetection } returns AapSetting.EarDetection(primary, secondary)
+            },
+        )
+    }
+
+    /** Simulates an AAP ear-detection transition (pod removed/inserted) for the primary device. */
+    private fun TestScope.changeEarDetection(primary: AapSetting.EarDetection.PodPlacement, secondary: AapSetting.EarDetection.PodPlacement) {
+        setEarDetectionSnapshot(primary, secondary)
+        runCurrent()
+    }
+
+    /**
+     * Advances BOTH the coroutine scheduler (drives the delay-based timers: STOP_SETTLE, the wind-down
+     * fuse, the stale backstop) AND the [TestTimeSource] that backs `isRecentEarTransition`'s
+     * `elapsedRealtime()` reads. Advancing only the coroutine clock leaves the recorded ear-transition
+     * age frozen at 0, which makes settle / EAR_TRANSITION_WINDOW assertions pass regardless of the real
+     * durations. The wall clock is advanced first so a timer firing mid-advance sees the full elapsed age.
+     */
+    private fun TestScope.advanceBoth(ms: Long) {
+        timeSource.advanceBy(java.time.Duration.ofMillis(ms))
+        advanceTimeBy(ms)
+        runCurrent()
+    }
+
+    @Test
+    fun `LOWER_VOLUME start ducks, stop restores`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        verify(exactly = 1) { mediaControl.duckMusicVolume(50) }
+        verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+
+        emit(primaryAddress, ConversationAwarenessEvent.STOP) // cold terminal → settles briefly
+        advanceTimeBy(stopSettleMs + 50)
+        runCurrent()
+        verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+        job.cancel()
+    }
+
+    @Test
+    fun `absolute mode uses target only on new session and restores original after HOLD RESUME STOP`() =
+        runTest(UnconfinedTestDispatcher()) {
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.LOWER_VOLUME,
+                reduction = 65, mode = ConversationVolumeMode.ABSOLUTE_TARGET, target = 20))
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            verify(exactly = 1) { mediaControl.duckMusicVolumeToTarget(20) }
+            verify(exactly = 0) { mediaControl.duckMusicVolume(any()) }
+            every { mediaControl.currentMusicVolume() } returns 7 // changed during this duck
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.LOWER_VOLUME,
+                reduction = 65, mode = ConversationVolumeMode.RELATIVE_REDUCTION, target = 40))
+            emit(primaryAddress, ConversationAwarenessEvent.RESUME)
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            verify(exactly = 1) { mediaControl.duckMusicVolumeToTarget(20) }
+            verify(exactly = 0) { mediaControl.duckMusicVolume(any()) }
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)
+            verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            verify(exactly = 1) { mediaControl.duckMusicVolume(65) }
+            job.cancel()
+        }
+
+    @Test
+    fun `absolute ignored write takes focus fallback and completion releases it`() =
+        runTest(UnconfinedTestDispatcher()) {
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.LOWER_VOLUME,
+                mode = ConversationVolumeMode.ABSOLUTE_TARGET))
+            every { mediaControl.duckMusicVolumeToTarget(20) } returns MediaControl.DuckOutcome.Unchanged(10)
+            every { mediaControl.requestDuckFocus() } returns true
+            every { mediaControl.currentMusicVolume() } returns 10
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            verify(exactly = 1) { mediaControl.requestDuckFocus() }
+            job.cancel()
+            runCurrent()
+            verify(exactly = 1) { mediaControl.abandonDuckFocus() }
+            verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+        }
+
+    @Test
+    fun `absolute skipped duck does not open active session or request focus`() =
+        runTest(UnconfinedTestDispatcher()) {
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.LOWER_VOLUME,
+                mode = ConversationVolumeMode.ABSOLUTE_TARGET))
+            every { mediaControl.duckMusicVolumeToTarget(20) } returns MediaControl.DuckOutcome.Skipped
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)
+            advanceTimeBy(stopSettleMs + 50)
+            runCurrent()
+            verify(exactly = 0) { mediaControl.requestDuckFocus() }
+            verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+            job.cancel()
+        }
+
+    @Test
+    fun `absolute duck restores original when owner disconnects`() = runTest(UnconfinedTestDispatcher()) {
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.LOWER_VOLUME,
+            mode = ConversationVolumeMode.ABSOLUTE_TARGET))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        statesFlow.value = emptyMap()
+        runCurrent()
+
+        verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+        job.cancel()
+        runCurrent()
+        verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+    }
+
+    @Test
+    fun `absolute duck restores original on monitor completion`() = runTest(UnconfinedTestDispatcher()) {
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.LOWER_VOLUME,
+            mode = ConversationVolumeMode.ABSOLUTE_TARGET))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        job.cancel()
+        runCurrent()
+
+        verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+    }
+
+    @Test
+    fun `LOWER_VOLUME restores unconditionally even if the volume was moved meanwhile`() = runTest(UnconfinedTestDispatcher()) {
+        // Something else (e.g. another volume-manager app) moved the volume during the duck, so the
+        // current reading no longer matches what we applied — we must still restore to the saved prior.
+        every { mediaControl.currentMusicVolume() } returns 7
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        emit(primaryAddress, ConversationAwarenessEvent.STOP) // cold terminal → settles briefly
+        advanceTimeBy(stopSettleMs + 50)
+        runCurrent()
+
+        verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+        job.cancel()
+    }
+
+    @Test
+    fun `LOWER_VOLUME owner leaving the AAP state map restores volume`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        statesFlow.value = emptyMap() // device disconnected before STOP arrived
+        runCurrent()
+
+        verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+        job.cancel()
+    }
+
+    /**
+     * A duck that never happened (nothing playing, fixed volume, no headroom, or a volume that came
+     * back higher — every reason maps to `Skipped`, pinned per reason in `MediaControlTest`) must
+     * leave no session behind: nothing to restore on the terminal, and no armed backstop that would
+     * restore a level that was never left. A repeat START retries the duck rather than treating the
+     * dead session as a keep-alive. It must also NOT reach for the audio-focus fallback — that is
+     * only for a write the ROM accepted and ignored.
+     */
+    @Test
+    fun `LOWER_VOLUME skipped duck arms nothing and never restores`() = runTest(UnconfinedTestDispatcher()) {
+        every { mediaControl.duckMusicVolume(any()) } returns MediaControl.DuckOutcome.Skipped
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        verify(exactly = 1) { mediaControl.duckMusicVolume(50) }
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        verify(exactly = 2) { mediaControl.duckMusicVolume(50) }
+
+        emit(primaryAddress, ConversationAwarenessEvent.STOP)
+        advanceBoth(stopSettleMs + 50)
+        advanceBoth(staleTimeoutMs + 500)
+
+        verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+        verify(exactly = 0) { mediaControl.requestDuckFocus() }
+        job.cancel()
+    }
+
+    /**
+     * The whole point of the focus fallback: a working duck must never request audio focus. The
+     * [mediaControl] mock is relaxed, so an accidental request would otherwise pass silently.
+     */
+    @Test
+    fun `LOWER_VOLUME successful duck never requests audio focus`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        emit(primaryAddress, ConversationAwarenessEvent.STOP)
+        advanceBoth(stopSettleMs + 50)
+
+        verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+        verify(exactly = 0) { mediaControl.requestDuckFocus() }
+        verify(exactly = 0) { mediaControl.abandonDuckFocus() }
+        job.cancel()
+    }
+
+    /**
+     * ColorOS 16 accepts `setStreamVolume` from a backgrounded app and leaves the level untouched.
+     * The reaction then holds ducking audio focus for the conversation and releases it at the end.
+     */
+    @Test
+    fun `LOWER_VOLUME unchanged duck falls back to audio focus`() = runTest(UnconfinedTestDispatcher()) {
+        every { mediaControl.duckMusicVolume(any()) } returns MediaControl.DuckOutcome.Unchanged(priorVolume = 10)
+        every { mediaControl.requestDuckFocus() } returns true
+        every { mediaControl.currentMusicVolume() } returns 10 // the write really never landed
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        verify(exactly = 1) { mediaControl.requestDuckFocus() }
+        verify(exactly = 0) { mediaControl.abandonDuckFocus() }
+
+        emit(primaryAddress, ConversationAwarenessEvent.STOP) // cold terminal → settles briefly
+        advanceBoth(stopSettleMs + 50)
+
+        verify(exactly = 1) { mediaControl.abandonDuckFocus() }
+        // Nothing was ever lowered, so there is nothing to restore.
+        verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+        job.cancel()
+    }
+
+    /**
+     * Focus denied on top of an ignored volume write: nothing was attenuated, so no session may be
+     * recorded — otherwise the next START would be a keep-alive on a dead session and the backstop
+     * would later "release" focus we never held.
+     */
+    @Test
+    fun `LOWER_VOLUME unchanged duck with denied focus arms nothing`() = runTest(UnconfinedTestDispatcher()) {
+        every { mediaControl.duckMusicVolume(any()) } returns MediaControl.DuckOutcome.Unchanged(priorVolume = 10)
+        every { mediaControl.requestDuckFocus() } returns false
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        verify(exactly = 1) { mediaControl.requestDuckFocus() }
+
+        // Retried from scratch rather than treated as a keep-alive.
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        verify(exactly = 2) { mediaControl.duckMusicVolume(50) }
+        verify(exactly = 2) { mediaControl.requestDuckFocus() }
+
+        emit(primaryAddress, ConversationAwarenessEvent.STOP)
+        advanceBoth(stopSettleMs + 50)
+        advanceBoth(staleTimeoutMs + 500)
+
+        verify(exactly = 0) { mediaControl.abandonDuckFocus() }
+        verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+        job.cancel()
+    }
+
+    @Test
+    fun `LOWER_VOLUME focus session releases focus when the owner disappears`() =
+        runTest(UnconfinedTestDispatcher()) {
+            every { mediaControl.duckMusicVolume(any()) } returns MediaControl.DuckOutcome.Unchanged(priorVolume = 10)
+            every { mediaControl.requestDuckFocus() } returns true
+            every { mediaControl.currentMusicVolume() } returns 10
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            statesFlow.value = emptyMap() // device disconnected before STOP arrived
+            runCurrent()
+
+            verify(exactly = 1) { mediaControl.abandonDuckFocus() }
+            verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+            job.cancel()
+        }
+
+    /**
+     * Late-write guard: a device may apply the volume write asynchronously, after the read-back that
+     * showed equality and sent us down the focus path. Teardown would otherwise leave the stream
+     * index permanently lowered, so a level below the pre-duck one is restored.
+     */
+    @Test
+    fun `LOWER_VOLUME focus session restores a volume write that landed late`() =
+        runTest(UnconfinedTestDispatcher()) {
+            every { mediaControl.duckMusicVolume(any()) } returns MediaControl.DuckOutcome.Unchanged(priorVolume = 10)
+            every { mediaControl.requestDuckFocus() } returns true
+            every { mediaControl.currentMusicVolume() } returns 5 // the write landed after all
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)
+            advanceBoth(stopSettleMs + 50)
+
+            verify(exactly = 1) { mediaControl.abandonDuckFocus() }
+            verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+            job.cancel()
+        }
+
+    /**
+     * A permanent focus loss mid-conversation is only recoverable on a later START — every one of
+     * them is a keep-alive for the running session, so the keep-alive path has to re-request.
+     */
+    @Test
+    fun `LOWER_VOLUME keep-alive re-requests focus that was permanently lost`() =
+        runTest(UnconfinedTestDispatcher()) {
+            every { mediaControl.duckMusicVolume(any()) } returns MediaControl.DuckOutcome.Unchanged(priorVolume = 10)
+            every { mediaControl.requestDuckFocus() } returns true
+            every { mediaControl.currentMusicVolume() } returns 10
+            every { mediaControl.isDuckFocusHeld } returns true
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            verify(exactly = 1) { mediaControl.requestDuckFocus() }
+
+            // Still held → the keep-alive must not re-request.
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            verify(exactly = 1) { mediaControl.requestDuckFocus() }
+
+            every { mediaControl.isDuckFocusHeld } returns false
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            verify(exactly = 2) { mediaControl.requestDuckFocus() }
+            // Still the same session — no second duck attempt.
+            verify(exactly = 1) { mediaControl.duckMusicVolume(50) }
+            job.cancel()
+        }
+
+    @Test
+    fun `LOWER_VOLUME missed STOP restores via stale timeout`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        verify(exactly = 1) { mediaControl.duckMusicVolume(50) }
+        verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+
+        // No STOP arrives; frames cease. After the stale timeout, volume must be restored.
+        advanceTimeBy(staleTimeoutMs + 500)
+        runCurrent()
+
+        verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+        job.cancel()
+    }
+
+    @Test
+    fun `dropped terminal frame restores via the wind-down fuse`() = runTest(UnconfinedTestDispatcher()) {
+        // Regression for #608 (fw …6589): the wind-down flurry 1,2,3,0xB,4 arrives but the terminal
+        // 8/9 is dropped entirely. The HOLD frames prove the wind-down began, so the short fuse must
+        // restore the volume — not strand it low until the 5-minute backstop.
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START) // 1
+        emit(primaryAddress, ConversationAwarenessEvent.START) // 2
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD) // 3
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD) // 0x0B
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD) // 4 — last frame ever, no terminal
+        verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+
+        advanceTimeBy(windDownTimeoutMs + 500)
+        runCurrent()
+        verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+        job.cancel()
+    }
+
+    @Test
+    fun `HOLD frames re-arm the wind-down fuse so intra-flurry gaps do not fire it`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // Gaps of up to 2.8s were observed between consecutive wind-down frames — each HOLD
+            // must re-arm the short fuse rather than letting a mid-flurry gap disengage early.
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)
+            advanceTimeBy(windDownTimeoutMs * 2 / 3)
+            runCurrent()
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD) // re-arms
+            advanceTimeBy(windDownTimeoutMs * 2 / 3) // <1 fuse since the last HOLD
+            runCurrent()
+            verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+
+            advanceTimeBy(windDownTimeoutMs) // now >1 fuse since the last frame
+            runCurrent()
+            verify(exactly = 1) { mediaControl.restoreMusicVolume(10) }
+            job.cancel()
+        }
+
+    @Test
+    fun `fresh START during a wind-down cancels the short fuse`() = runTest(UnconfinedTestDispatcher()) {
+        // Wearer resumes speaking while the wind-down fuse is burning: the START must switch back
+        // to the long backstop — otherwise media resumes ~6s into the renewed conversation.
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD) // wind-down begins, short fuse armed
+        emit(primaryAddress, ConversationAwarenessEvent.START) // speaking again
+        advanceTimeBy(windDownTimeoutMs * 3)
+        runCurrent()
+
+        verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+        job.cancel()
+    }
+
+    @Test
+    fun `PAUSE with dropped terminal frame resumes via the wind-down fuse`() = runTest(UnconfinedTestDispatcher()) {
+        // Same #608 single-pod scenario but with the PAUSE action: the fuse-driven disengage goes
+        // through the resume guards (age window, worn, already-playing) — at ~6s the pause is well
+        // inside PAUSE_RESUME_WINDOW, so media must resume rather than stay paused indefinitely.
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        coVerify(exactly = 1) { mediaControl.sendPause(false) }
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD) // wind-down begins, terminal dropped
+        coVerify(exactly = 0) { mediaControl.sendPlay() }
+
+        advanceTimeBy(windDownTimeoutMs + 500)
+        runCurrent()
+        coVerify(exactly = 1) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `HOLD without a prior START does not engage`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD)
+
+        verify(exactly = 0) { mediaControl.duckMusicVolume(any()) }
+        job.cancel()
+    }
+
+    @Test
+    fun `PAUSE start pauses, stop resumes when worn and idle`() = runTest(UnconfinedTestDispatcher()) {
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        coVerify(exactly = 1) { mediaControl.sendPause(false) }
+
+        emit(primaryAddress, ConversationAwarenessEvent.STOP) // cold terminal → settles briefly
+        advanceTimeBy(stopSettleMs + 50)
+        runCurrent()
+        coVerify(exactly = 1) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `PAUSE stop does not resume when pods not worn`() = runTest(UnconfinedTestDispatcher()) {
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE, worn = false))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        emit(primaryAddress, ConversationAwarenessEvent.STOP)
+        advanceTimeBy(stopSettleMs + 50)
+        runCurrent()
+
+        coVerify(exactly = 0) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `PAUSE one-pod mode resumes via wind-down fuse when the single worn pod drops the terminal`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // #608 single-pod wear: both-pods isBeingWorn is false, but One-Pod Mode means the single
+            // in-ear pod counts as worn, so the fuse-driven resume must fire. Was skipped as "not worn"
+            // because the guard read isBeingWorn (both pods) instead of honoring One-Pod Mode.
+            devicesFlow.value = listOf(
+                mockPodDevice(
+                    primaryAddress,
+                    ConversationAction.PAUSE,
+                    worn = false,
+                    onePodMode = true,
+                    eitherInEar = true,
+                ),
+            )
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            coVerify(exactly = 1) { mediaControl.sendPause(false) }
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD) // wind-down begins, terminal dropped
+
+            advanceTimeBy(windDownTimeoutMs + 500)
+            runCurrent()
+            coVerify(exactly = 1) { mediaControl.sendPlay() }
+            job.cancel()
+        }
+
+    @Test
+    fun `PAUSE one-pod mode stays paused via fuse when no pod is worn`() = runTest(UnconfinedTestDispatcher()) {
+        // One-Pod Mode on, but neither pod in ear (both isBeingWorn and isEitherPodInEar false) — the
+        // single-pod leniency must NOT resume into pods that are out.
+        devicesFlow.value = listOf(
+            mockPodDevice(
+                primaryAddress,
+                ConversationAction.PAUSE,
+                worn = false,
+                onePodMode = true,
+                eitherInEar = false,
+            ),
+        )
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD)
+        advanceTimeBy(windDownTimeoutMs + 500)
+        runCurrent()
+
+        coVerify(exactly = 0) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `PAUSE one-pod mode resumes on terminal after wind-down with a single worn pod`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // The timerPhase==WIND_DOWN_FUSE branch disengages immediately on the explicit terminal
+            // (no STOP_SETTLE). Verify the One-Pod Mode worn check applies on that shared path too.
+            devicesFlow.value = listOf(
+                mockPodDevice(
+                    primaryAddress,
+                    ConversationAction.PAUSE,
+                    worn = false,
+                    onePodMode = true,
+                    eitherInEar = true,
+                ),
+            )
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD) // wind-down → fuse armed
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)  // real terminal → immediate disengage
+            runCurrent()
+            coVerify(exactly = 1) { mediaControl.sendPlay() }
+            job.cancel()
+        }
+
+    @Test
+    fun `PAUSE stop does not resume when something is already playing`() = runTest(UnconfinedTestDispatcher()) {
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        every { mediaControl.isPlaying } returns true // user/app restarted playback during the talk
+        emit(primaryAddress, ConversationAwarenessEvent.STOP)
+        advanceTimeBy(stopSettleMs + 50)
+        runCurrent()
+
+        coVerify(exactly = 0) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `PAUSE resumes on stop even if the action was switched away mid-talk`() = runTest(UnconfinedTestDispatcher()) {
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        coVerify(exactly = 1) { mediaControl.sendPause(false) }
+
+        // User changes the action mid-conversation; we must still undo the pause WE caused.
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.LOWER_VOLUME))
+        emit(primaryAddress, ConversationAwarenessEvent.STOP) // cold terminal → settles briefly
+        advanceTimeBy(stopSettleMs + 50)
+        runCurrent()
+
+        coVerify(exactly = 1) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `NOTHING action ignores speaking`() = runTest(UnconfinedTestDispatcher()) {
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.NOTHING))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+
+        verify(exactly = 0) { mediaControl.duckMusicVolume(any()) }
+        coVerify(exactly = 0) { mediaControl.sendPause(any()) }
+        job.cancel()
+    }
+
+    @Test
+    fun `non-primary device start is ignored`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launchReaction()
+
+        emit(otherAddress, ConversationAwarenessEvent.START)
+
+        verify(exactly = 0) { mediaControl.duckMusicVolume(any()) }
+        job.cancel()
+    }
+
+    @Test
+    fun `stop without a prior start is a no-op`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.STOP)
+
+        verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+        coVerify(exactly = 0) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `duplicate start does not duck twice`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        emit(primaryAddress, ConversationAwarenessEvent.START) // status 1 then 2 both classify as START
+
+        verify(exactly = 1) { mediaControl.duckMusicVolume(any()) }
+        job.cancel()
+    }
+
+    @Test
+    fun `PAUSE stays paused through frame silence, resumes only on explicit STOP, then re-engages`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // The pod sends NO frames during continuous speech (29s silent gaps observed), then a
+            // terminal STOP. The old 12s stale timeout resumed media mid-speech; the long backstop
+            // must not, and a fresh talk must re-arm.
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            emit(primaryAddress, ConversationAwarenessEvent.START) // status 1 then 2
+            coVerify(exactly = 1) { mediaControl.sendPause(false) }
+
+            advanceTimeBy(20_000) // 20s of silence — well under the backstop
+            runCurrent()
+            coVerify(exactly = 0) { mediaControl.sendPlay() } // NOT resumed mid-speech
+
+            emit(primaryAddress, ConversationAwarenessEvent.STOP) // cold terminal → settles briefly
+            advanceTimeBy(stopSettleMs + 50)
+            runCurrent()
+            coVerify(exactly = 1) { mediaControl.sendPlay() }
+
+            emit(primaryAddress, ConversationAwarenessEvent.START) // a fresh talk re-arms
+            coVerify(exactly = 2) { mediaControl.sendPause(false) }
+            job.cancel()
+        }
+
+    @Test
+    fun `HOLD frames keep media paused, only terminal STOP resumes`() = runTest(UnconfinedTestDispatcher()) {
+        // fw …6503-style wind-down 1,2,3,0xB,4,8,9: transitional frames must not resume.
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD) // 3
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD) // 0x0B
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD) // 4
+        coVerify(exactly = 0) { mediaControl.sendPlay() }
+
+        emit(primaryAddress, ConversationAwarenessEvent.STOP) // 8
+        coVerify(exactly = 1) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `RESUME keeps media paused through a bursty conversation, resumes only at the real terminal`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // Regression for the fw …6861 status-5 bug. Bursty talking emits 1,2 then 3,5 (pause,
+            // resume) pairs while CA stays engaged, ending with the real wind-down 3,0xB,4,8,9.
+            // Status 5 was misclassified as a terminal STOP, so media resumed on the first burst
+            // pause and — with no fresh 1/2 onset mid-conversation — never paused again. RESUME must
+            // keep media paused until the genuine terminal.
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START) // 1
+            emit(primaryAddress, ConversationAwarenessEvent.START) // 2
+            coVerify(exactly = 1) { mediaControl.sendPause(false) }
+
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)   // 3 pause
+            emit(primaryAddress, ConversationAwarenessEvent.RESUME) // 5 resume
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)   // 3 pause
+            emit(primaryAddress, ConversationAwarenessEvent.RESUME) // 5 resume
+            coVerify(exactly = 0) { mediaControl.sendPlay() }       // stayed paused through the bursts
+
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)   // 3
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)   // 0x0B
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)   // 4
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)   // 8 terminal
+            coVerify(exactly = 1) { mediaControl.sendPlay() }
+            job.cancel()
+        }
+
+    @Test
+    fun `RESUME cancels the wind-down fuse`() = runTest(UnconfinedTestDispatcher()) {
+        // A pause (3) arms the short fuse; a resume (5) must cancel it and switch back to the long
+        // backstop — otherwise media resumes ~6s into renewed speech.
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD)   // 3 — wind-down fuse armed
+        advanceTimeBy(windDownTimeoutMs * 2 / 3)
+        runCurrent()
+        emit(primaryAddress, ConversationAwarenessEvent.RESUME) // 5 — speech resumed, cancel fuse
+        advanceTimeBy(windDownTimeoutMs * 2)                    // well past the original fuse
+        runCurrent()
+
+        coVerify(exactly = 0) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `wind-down after a RESUME still disengages via the fuse (dropped terminal)`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // After a resume re-arms the long backstop, a later genuine wind-down (0xB,4 with the
+            // 8,9 terminal dropped — single-pod) must still disengage via the short fuse. Proves the
+            // RESUME keep-alive doesn't permanently disable #608 recovery.
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)   // 3 pause
+            emit(primaryAddress, ConversationAwarenessEvent.RESUME) // 5 resume → long backstop
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)   // 3 pause again
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)   // 0x0B wind-down
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)   // 4 — terminal dropped
+            coVerify(exactly = 0) { mediaControl.sendPlay() }
+
+            advanceTimeBy(windDownTimeoutMs + 500)
+            runCurrent()
+            coVerify(exactly = 1) { mediaControl.sendPlay() }
+            job.cancel()
+        }
+
+    @Test
+    fun `PAUSE resumes on the terminal even after a conversation longer than the resume window`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // A bursty conversation that runs past PAUSE_RESUME_WINDOW: the explicit STOP must still
+            // resume. The age guard applies only to the inferred stale backstop, not to a real
+            // terminal. Advance BOTH clocks so the window is genuinely exercised (TestTimeSource
+            // drives `age`).
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            coVerify(exactly = 1) { mediaControl.sendPause(false) }
+
+            repeat(3) {
+                timeSource.advanceBy(java.time.Duration.ofSeconds(60))
+                advanceTimeBy(60_000) // < STALE_TIMEOUT, so the backstop never fires
+                runCurrent()
+                emit(primaryAddress, ConversationAwarenessEvent.RESUME)
+            }
+            coVerify(exactly = 0) { mediaControl.sendPlay() } // 3 min in, still paused
+
+            emit(primaryAddress, ConversationAwarenessEvent.STOP) // cold terminal → settles briefly
+            advanceTimeBy(stopSettleMs + 50)
+            runCurrent()
+            coVerify(exactly = 1) { mediaControl.sendPlay() }
+            job.cancel()
+        }
+
+    @Test
+    fun `PAUSE resumes on a direct STOP after long frame silence`() = runTest(UnconfinedTestDispatcher()) {
+        // Continuous speech sends no frames; then a direct terminal (no preceding wind-down) arrives
+        // past PAUSE_RESUME_WINDOW but before STALE_TIMEOUT. An explicit STOP is positive evidence CA
+        // ended now, so it must resume regardless of engage-age. (Fails if the age guard is applied to
+        // explicit terminals.)
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        coVerify(exactly = 1) { mediaControl.sendPause(false) }
+
+        timeSource.advanceBy(java.time.Duration.ofSeconds(150)) // > 2-min window, < 5-min backstop
+        advanceTimeBy(150_000)
+        runCurrent()
+        coVerify(exactly = 0) { mediaControl.sendPlay() } // still paused, no frames yet
+
+        emit(primaryAddress, ConversationAwarenessEvent.STOP) // cold terminal → settles briefly
+        advanceTimeBy(stopSettleMs + 50)
+        runCurrent()
+        coVerify(exactly = 1) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `PAUSE does not resume when the stale backstop fires past the resume window`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // The inferred end (5-min backstop, no terminal ever) keeps the age guard: a long-stale
+            // pause must NOT surprise-resume.
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            coVerify(exactly = 1) { mediaControl.sendPause(false) }
+
+            timeSource.advanceBy(java.time.Duration.ofMinutes(5))
+            advanceTimeBy(5L * 60 * 1000 + 500) // STALE_TIMEOUT fires
+            runCurrent()
+
+            coVerify(exactly = 0) { mediaControl.sendPlay() } // inferred stale end → not resumed
+            job.cancel()
+        }
+
+    @Test
+    fun `RESUME without a prior start is a no-op`() = runTest(UnconfinedTestDispatcher()) {
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.RESUME) // stray 5, nothing engaged
+
+        coVerify(exactly = 0) { mediaControl.sendPause(any()) }
+        coVerify(exactly = 0) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `LOWER_VOLUME RESUME keeps the volume ducked`() = runTest(UnconfinedTestDispatcher()) {
+        // Same status-5 bug seen on the default action: it restored volume on the first 3→5 pause.
+        val job = launchReaction() // devicesFlow default = LOWER_VOLUME
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        verify(exactly = 1) { mediaControl.duckMusicVolume(any()) }
+        emit(primaryAddress, ConversationAwarenessEvent.HOLD)   // 3
+        emit(primaryAddress, ConversationAwarenessEvent.RESUME) // 5
+        verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+        job.cancel()
+    }
+
+    @Test
+    fun `PAUSE pod removal mid-conversation does not strand media paused`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // Pulling a pod re-keys CA (terminal then fresh onset) while the conversation continues.
+            // The terminal lands right after the ear-detection change → defer to the fuse, the re-onset
+            // cancels it, media stays paused and the session alive. The real end later resumes.
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            coVerify(exactly = 1) { mediaControl.sendPause(false) }
+
+            changeEarDetection(inEar, outOfEar)                       // pod pulled
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)     // re-key terminal
+            emit(primaryAddress, ConversationAwarenessEvent.START)    // re-onset, still talking
+            advanceTimeBy(windDownTimeoutMs * 2)                      // fuse would have fired — but was cancelled
+            runCurrent()
+            coVerify(exactly = 0) { mediaControl.sendPlay() }         // still paused, not stranded-resumed early
+
+            timeSource.advanceBy(java.time.Duration.ofSeconds(3))     // past EAR_TRANSITION_WINDOW
+            advanceTimeBy(3_000)
+            runCurrent()
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)     // genuine end, no recent ear change
+            advanceTimeBy(stopSettleMs + 50)                          // cold terminal → settles briefly
+            runCurrent()
+            coVerify(exactly = 1) { mediaControl.sendPlay() }         // resumes
+            job.cancel()
+        }
+
+    @Test
+    fun `PAUSE primary-pod removal where the terminal precedes the ear change is caught by the settle`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // Ground truth (on-device, AirPods Pro 3, primary/left pod): the doubled re-key terminal
+            // (8,9) arrives ~30ms BEFORE the 0x06 ear frame, so the backward-looking check misses it and
+            // onSpeakingStop takes the cold "settling" branch. The ear change then lands DURING the
+            // 250ms settle, and at settle expiry the transition is recent → deferred to the fuse, not a
+            // resume. advanceBoth is required: isRecentEarTransition reads TestTimeSource, so advancing
+            // only coroutine time would freeze the transition age at 0 and pass regardless of durations.
+            setEarDetectionSnapshot(inEar, inEar) // both pods worn baseline
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            coVerify(exactly = 1) { mediaControl.sendPause(false) }
+
+            emit(primaryAddress, ConversationAwarenessEvent.STOP) // terminal first → cold, settling
+            advanceBoth(30)
+            changeEarDetection(outOfEar, inEar)                   // ear change lands during the settle
+            emit(primaryAddress, ConversationAwarenessEvent.STOP) // second terminal frame
+            advanceBoth(stopSettleMs)                             // settle expires; transition is recent
+            coVerify(exactly = 0) { mediaControl.sendPlay() }     // deferred to fuse, NOT resumed
+
+            emit(primaryAddress, ConversationAwarenessEvent.START) // re-onset on remaining pod
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            advanceBoth(windDownTimeoutMs * 2)                    // fuse would fire — re-onset cancelled it
+            coVerify(exactly = 0) { mediaControl.sendPlay() }     // still paused, session alive
+
+            // Genuine end, past EAR_TRANSITION_WINDOW so the terminal is fuse-corroborated (immediate).
+            advanceBoth(2_100)
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD)
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)
+            coVerify(exactly = 1) { mediaControl.sendPlay() }     // resumes exactly once, only here
+            job.cancel()
+        }
+
+    @Test
+    fun `LOWER_VOLUME pod removal mid-conversation does not blip the volume`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // The re-key terminal must not restore (which the immediate re-onset would then re-duck —
+            // an audible 5→10→5 jump). Defer to the fuse; the re-onset keeps it ducked.
+            val job = launchReaction() // default LOWER_VOLUME
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            verify(exactly = 1) { mediaControl.duckMusicVolume(any()) }
+
+            changeEarDetection(inEar, outOfEar)                       // pod pulled
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)     // re-key terminal
+            verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) } // no restore → no blip
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)    // re-onset
+            verify(exactly = 1) { mediaControl.duckMusicVolume(any()) } // not re-ducked (keep-alive only)
+            verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+            job.cancel()
+        }
+
+    @Test
+    fun `terminal during ear transition still disengages via the fuse if no re-onset follows`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // Removed a pod AND the conversation actually ended (no re-onset): the deferred terminal's
+            // fuse must still disengage within seconds rather than waiting for the long backstop.
+            devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+            val job = launchReaction()
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            coVerify(exactly = 1) { mediaControl.sendPause(false) }
+
+            changeEarDetection(inEar, outOfEar)
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)     // deferred to fuse
+            coVerify(exactly = 0) { mediaControl.sendPlay() }
+
+            advanceTimeBy(windDownTimeoutMs + 500)
+            runCurrent()
+            coVerify(exactly = 1) { mediaControl.sendPlay() }         // fuse disengaged
+            job.cancel()
+        }
+
+    @Test
+    fun `STOP from a non-owner does not disengage the active owner`() = runTest(UnconfinedTestDispatcher()) {
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        emit(otherAddress, ConversationAwarenessEvent.STOP) // a different device's STOP
+
+        coVerify(exactly = 0) { mediaControl.sendPlay() }
+        job.cancel()
+    }
+
+    @Test
+    fun `explicit STOP then stale backstop does not double-resume`() = runTest(UnconfinedTestDispatcher()) {
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, ConversationAction.PAUSE))
+        val job = launchReaction()
+
+        emit(primaryAddress, ConversationAwarenessEvent.START)
+        emit(primaryAddress, ConversationAwarenessEvent.STOP) // cold terminal → settles briefly
+        advanceTimeBy(stopSettleMs + 50)
+        runCurrent()
+        coVerify(exactly = 1) { mediaControl.sendPlay() }
+
+        advanceTimeBy(staleTimeoutMs + 500) // backstop would fire if STOP hadn't cancelled it
+        runCurrent()
+        coVerify(exactly = 1) { mediaControl.sendPlay() } // still only once
+        job.cancel()
+    }
+
+    @Test
+    fun `LOWER_VOLUME secondary-pod removal and reinsert holds the duck, restores only at the real end`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // Ground truth (on-device, AirPods Pro 3, secondary/right pod): the 0x06 ear change lands
+            // ~30ms BEFORE the doubled re-key terminal (8,9), so the backward isRecentEarTransition
+            // check defers each terminal to the fuse; the doubled re-onset (1,2) keeps the session
+            // alive. The duck must be restored only at the genuine wind-down end — never during the
+            // pull or the reinsert (otherwise the immediate re-onset re-ducks → an audible 5→10→5 jump).
+            setEarDetectionSnapshot(inEar, inEar) // both pods worn baseline
+            val job = launchReaction() // default LOWER_VOLUME
+
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            verify(exactly = 1) { mediaControl.duckMusicVolume(any()) }
+
+            // Pull: ear-out first, then the doubled terminal, then the doubled re-onset.
+            changeEarDetection(inEar, outOfEar)
+            advanceBoth(30)
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+
+            // Reinsert ~1.5s later: same ear-before-terminal ordering.
+            advanceBoth(1_500)
+            changeEarDetection(inEar, inEar)
+            advanceBoth(30)
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)
+            emit(primaryAddress, ConversationAwarenessEvent.STOP)
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            emit(primaryAddress, ConversationAwarenessEvent.START)
+            verify(exactly = 0) { mediaControl.restoreMusicVolume(any()) }
+
+            // Genuine end, past EAR_TRANSITION_WINDOW so the terminal is fuse-corroborated (immediate).
+            advanceBoth(2_100)
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD) // 3
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD) // 0x0B
+            emit(primaryAddress, ConversationAwarenessEvent.HOLD) // 4
+            emit(primaryAddress, ConversationAwarenessEvent.STOP) // 8
+            emit(primaryAddress, ConversationAwarenessEvent.STOP) // 9
+            verify(exactly = 1) { mediaControl.restoreMusicVolume(any()) } // restored exactly once, here
+            verify(exactly = 1) { mediaControl.duckMusicVolume(any()) }    // engaged exactly once total
+            job.cancel()
+        }
+}
