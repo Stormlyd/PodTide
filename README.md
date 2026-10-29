@@ -12,7 +12,7 @@ PodTide 是一款面向 Android 的开源 AirPods 伴侣应用，提供电量显
 
 - Android 8.0（API 26）及以上；耳机功能取决于型号、固件以及手机蓝牙实现。
 - 首台测试设备是 OPPO Find X9 / ColorOS，耳机为 AirPods Pro 3。项目面向其他满足系统要求的 Android 设备，欢迎反馈具体机型与系统版本。
-- 从 [GitHub Releases](https://github.com/Stormlyd/PodTide/releases/latest) 下载 APK，传到手机并安装。按系统提示授予附近设备、通知及其他与所用功能相关的权限。
+- 从 [GitHub Releases](https://github.com/Stormlyd/PodTide/releases) 或 [Gitee 发行版](https://gitee.com/falling-silenceLYD/PodTide/releases) 下载 APK，传到手机并安装。按系统提示授予附近设备、通知及其他与所用功能相关的权限。
 - 已安装相同签名的 PodTide 开发版可直接覆盖更新。自行编译的 APK 如果签名不同，需要按 Android 的应用安装规则处理。
 
 ## 已有功能
