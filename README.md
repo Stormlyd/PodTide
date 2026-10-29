@@ -52,3 +52,10 @@ Windows 可使用 `gradlew.bat`。正式发行包使用 `assembleFossRelease`，
 ## 开源与致谢
 
 项目以 GPL-3.0 发布，保留上游版权声明；第三方组件与许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。感谢 [CAPod](https://github.com/d4rken-org/capod) 与 [LibrePods](https://github.com/librepods-org/librepods) 项目及其贡献者。PodTide 是独立项目，与 Apple 没有官方关联；AirPods 等商标属于其各自权利人。
+
+
+## Root 与系统兼容性
+
+PodTide 当前公开版本按免 Root 方式实现。基础电量和广播检测依赖蓝牙权限，部分高级控制是否可用还取决于设备型号、系统版本及蓝牙实现。OPPO Find X9 / ColorOS 已进行免 Root 测试；其他机型和 vivo 的兼容性有待实测。本项目目前没有经过验证的 Root 模式。
+
+参考项目 LibrePods 表示 ColorOS / OxygenOS 16、realme UI 7 及特定 Android 16 QPR3 Pixel 设备的大部分功能可免 Root；这是 LibrePods 自身的兼容性资料，并不等同于 PodTide 的实测结果。参见 [LibrePods Android 说明](https://github.com/librepods-org/librepods/blob/main/android/README.md) 和 [CAPod 兼容性追踪](https://github.com/d4rken-org/capod/issues/538)。
