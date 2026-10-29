@@ -2,6 +2,7 @@ package eu.darken.capod.common.navigation
 
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import eu.darken.capod.common.BuildConfigWrap
 import eu.darken.capod.common.debug.logging.log
 import eu.darken.capod.common.debug.logging.logTag
 import javax.inject.Inject
@@ -20,7 +21,8 @@ class NavigationController @Inject constructor() {
         // Prune those keys before NavDisplay can compose them, including pages deeper in Back
         // history. Retain all other destinations in order and keep a valid root if none remain.
         val removedSensors = backStack.removeAll {
-            it is Nav.Main.HeartRate || it is Nav.Main.HeadPreview || it is Nav.Settings.ContactSupport
+            it is Nav.Main.HeartRate || it is Nav.Main.HeadPreview || it is Nav.Settings.ContactSupport ||
+                (BuildConfigWrap.FLAVOR == BuildConfigWrap.Flavor.FOSS && it is Nav.Main.Upgrade)
         }
         if (removedSensors && backStack.isEmpty()) backStack.add(Nav.Main.Overview)
         _backStack = backStack
@@ -42,6 +44,7 @@ class NavigationController @Inject constructor() {
         inclusive: Boolean = false
     ) {
         log(TAG) { "goTo($destination, popUpTo=$popUpTo, inclusive=$inclusive)" }
+        if (BuildConfigWrap.FLAVOR == BuildConfigWrap.Flavor.FOSS && destination is Nav.Main.Upgrade) return
 
         if (popUpTo != null) {
             if (backStack.none { it == popUpTo }) {

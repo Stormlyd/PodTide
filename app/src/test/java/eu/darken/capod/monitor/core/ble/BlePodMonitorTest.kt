@@ -1,10 +1,14 @@
 package eu.darken.capod.monitor.core.ble
 
+import android.bluetooth.le.ScanFilter
+import io.mockk.mockkConstructor
 import eu.darken.capod.common.TimeSource
 import eu.darken.capod.common.bluetooth.BleScanResult
 import eu.darken.capod.common.bluetooth.BleScanException
 import eu.darken.capod.common.bluetooth.BleScanner
 import eu.darken.capod.common.bluetooth.BluetoothManager2
+import eu.darken.capod.common.bluetooth.BluetoothDevice2
+import eu.darken.capod.profiles.core.AppleDeviceProfile
 import eu.darken.capod.common.bluetooth.ScannerMode
 import eu.darken.capod.common.permissions.Permission
 import eu.darken.capod.main.core.GeneralSettings
@@ -44,6 +48,45 @@ import testhelpers.TestTimeSource
 import testhelpers.datastore.FakeDataStoreValue
 
 class BlePodMonitorTest : BaseTest() {
+    @Test
+    fun `troubleshooting can scan when paired device is connected`() = runTest {
+        mockkConstructor(ScanFilter.Builder::class)
+        every { anyConstructed<ScanFilter.Builder>().build() } returns mockk()
+        val connected = MutableStateFlow(listOf(BluetoothDevice2(ADDRESS_X, "Pods", java.time.Instant.EPOCH)))
+        val profiles = MutableStateFlow(listOf(AppleDeviceProfile(label = "Pods", address = ADDRESS_X)))
+        var starts = 0
+        val fixture = createFixture(connected = connected, profileState = profiles) {
+            starts++
+            flow<Collection<BleScanResult>> { awaitCancellation() }
+        }
+        backgroundScope.launch { fixture.monitor.devices.collect {} }
+        runCurrent()
+        // onStart may briefly open a scan before connection state is delivered.
+        val before = starts
+        fixture.monitor.setUnfilteredOverride(true)
+        advanceTimeBy(1_001); runCurrent()
+        (starts > before) shouldBe true
+    }
+    @Test
+    fun `scan stops on paired connection and resumes after disconnect`() = runTest {
+        val connected = MutableStateFlow<List<BluetoothDevice2>>(emptyList())
+        val profiles = MutableStateFlow(listOf(AppleDeviceProfile(label = "Pods", address = ADDRESS_X)))
+        var starts = 0
+        var stops = 0
+        val fixture = createFixture(connected = connected, profileState = profiles) {
+            starts++
+            flow<Collection<BleScanResult>> { try { awaitCancellation() } finally { stops++ } }
+        }
+        backgroundScope.launch { fixture.monitor.devices.collect {} }
+        runCurrent()
+        starts shouldBe 1
+        connected.value = listOf(BluetoothDevice2(ADDRESS_X, "Pods", java.time.Instant.EPOCH))
+        runCurrent()
+        stops shouldBe 1
+        connected.value = emptyList()
+        runCurrent()
+        starts shouldBe 2
+    }
 
     @Test
     fun `scan security exception emits empty devices and rechecks permissions`() = runTest {
@@ -274,6 +317,8 @@ class BlePodMonitorTest : BaseTest() {
     private fun TestScope.createFixture(
         podFactory: PodFactory = mockk(relaxed = true),
         timeSource: TimeSource = TestTimeSource(),
+        connected: MutableStateFlow<List<BluetoothDevice2>> = MutableStateFlow(emptyList()),
+        profileState: MutableStateFlow<List<AppleDeviceProfile>> = MutableStateFlow(emptyList()),
         scanFlowFactory: () -> Flow<Collection<BleScanResult>>,
     ): Fixture {
         mockkObject(ProximityPairing)
@@ -306,9 +351,10 @@ class BlePodMonitorTest : BaseTest() {
         }
         val bluetoothManager = mockk<BluetoothManager2>().apply {
             every { isBluetoothEnabled } returns MutableStateFlow(true)
+            every { connectedDevices } returns connected
         }
         val profilesRepo = mockk<DeviceProfilesRepo>().apply {
-            every { profiles } returns MutableStateFlow(emptyList())
+            every { profiles } returns profileState
         }
         return Fixture(
             monitor = BlePodMonitor(

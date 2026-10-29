@@ -41,6 +41,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import eu.darken.capod.common.BuildConfigWrap
 import eu.darken.capod.R
 import eu.darken.capod.common.SystemTimeSource
 import eu.darken.capod.common.compose.Preview2
@@ -268,7 +269,7 @@ fun OverviewScreen(
                             }
                         }
 
-                        info.type == UpgradeRepo.Type.FOSS && !info.isPro -> {
+                        info.type == UpgradeRepo.Type.FOSS && !info.isPro && BuildConfigWrap.FLAVOR != BuildConfigWrap.Flavor.FOSS -> {
                             IconButton(onClick = onUpgrade) {
                                 Icon(
                                     imageVector = Icons.TwoTone.Stars,
@@ -363,7 +364,7 @@ fun OverviewScreen(
                     val isToggleable = state.isToggleable(device, index)
                     PodDeviceCard(
                         device = device,
-                        isPro = state.upgradeInfo.isPro,
+                        isPro = state.upgradeInfo.isPro || BuildConfigWrap.FLAVOR == BuildConfigWrap.Flavor.FOSS,
                         showDebug = state.isDebug,
                         now = state.now,
                         isCollapsed = isCollapsed,
@@ -379,7 +380,7 @@ fun OverviewScreen(
                 }
 
                 // 4b. Upgrade card when additional devices are hidden
-                if (state.hiddenProfiledDeviceCount > 0) {
+                if (state.hiddenProfiledDeviceCount > 0 && BuildConfigWrap.FLAVOR != BuildConfigWrap.Flavor.FOSS) {
                     item(key = "device_limit_upgrade") {
                         DeviceLimitUpgradeCard(
                             hiddenCount = state.hiddenProfiledDeviceCount,
@@ -420,7 +421,7 @@ fun OverviewScreen(
                         ) { _, device ->
                             PodDeviceCard(
                                 device = device,
-                                isPro = state.upgradeInfo.isPro,
+                                isPro = state.upgradeInfo.isPro || BuildConfigWrap.FLAVOR == BuildConfigWrap.Flavor.FOSS,
                                 showDebug = state.isDebug,
                                 now = state.now,
                                 onAncModeChange = { mode -> onAncModeChange(device, mode) },
@@ -625,8 +626,8 @@ private fun ToolbarTitle(upgradeInfo: UpgradeRepo.Info) {
 
     Text(
         text = brandTitle(
-            includeQualifier = upgradeInfo.isPro,
-            highlightQualifier = upgradeInfo.isPro,
+            includeQualifier = upgradeInfo.isPro && BuildConfigWrap.FLAVOR != BuildConfigWrap.Flavor.FOSS,
+            highlightQualifier = upgradeInfo.isPro && BuildConfigWrap.FLAVOR != BuildConfigWrap.Flavor.FOSS,
             highlightColor = highlight,
         ),
     )

@@ -1,7 +1,11 @@
 package eu.darken.capod.common.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import eu.darken.capod.common.BuildConfigWrap
 import eu.darken.capod.common.compose.Preview2
 import eu.darken.capod.common.compose.PreviewWrapper
 
@@ -41,11 +46,16 @@ fun SettingsBaseItem(
     enabled: Boolean = true,
     requiresUpgrade: Boolean = false,
     onLongClick: (() -> Unit)? = null,
+    grouped: Boolean = false,
     trailingContent: @Composable (() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
-            .fillMaxWidth()
+            .then(if (grouped) Modifier.fillMaxWidth() else Modifier
+                .padding(horizontal = 12.dp, vertical = 3.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerLow))
             .combinedClickable(
                 enabled = enabled,
                 onClick = onClick,
@@ -57,33 +67,24 @@ fun SettingsBaseItem(
         val contentAlpha = if (enabled) 1f else 0.5f
         val hasIcon = icon != null || iconPainter != null
         val tint = if (iconTinted) {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f * contentAlpha)
+            MaterialTheme.colorScheme.primary.copy(alpha = contentAlpha)
         } else {
             Color.Unspecified
         }
-
-        val iconModifier = if (subtitle != null) {
-            Modifier
-                .align(Alignment.Top)
-                .padding(top = 2.dp)
-                .size(iconSize)
-        } else {
-            Modifier.size(iconSize)
-        }
-        if (icon != null) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = iconModifier,
-                tint = tint,
-            )
-        } else if (iconPainter != null) {
-            Icon(
-                painter = iconPainter,
-                contentDescription = null,
-                modifier = iconModifier,
-                tint = tint,
-            )
+        if (hasIcon) {
+            Box(
+                modifier = (if (subtitle != null) Modifier.align(Alignment.Top) else Modifier)
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f * contentAlpha)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (icon != null) {
+                    Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(iconSize), tint = tint)
+                } else if (iconPainter != null) {
+                    Icon(painter = iconPainter, contentDescription = null, modifier = Modifier.size(iconSize), tint = tint)
+                }
+            }
         }
 
         Column(
@@ -101,7 +102,7 @@ fun SettingsBaseItem(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                if (requiresUpgrade) {
+                if (requiresUpgrade && BuildConfigWrap.FLAVOR != BuildConfigWrap.Flavor.FOSS) {
                     Spacer(modifier = Modifier.width(6.dp))
                     UpgradeBadge()
                 }

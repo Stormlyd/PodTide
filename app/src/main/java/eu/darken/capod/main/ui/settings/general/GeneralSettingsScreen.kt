@@ -43,6 +43,7 @@ import eu.darken.capod.common.locale.AppLanguage
 import eu.darken.capod.common.locale.AppLanguages
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import eu.darken.capod.common.BuildConfigWrap
 import eu.darken.capod.R
 import eu.darken.capod.common.compose.Preview2
 import eu.darken.capod.common.compose.PreviewWrapper
@@ -120,6 +121,7 @@ fun GeneralSettingsScreen(
     var helpDialog by remember { mutableStateOf<HelpDialog?>(null) }
     var launchFailed by remember { mutableStateOf(false) }
 
+    val upgradeLocked = state.isUpgradeLocked && BuildConfigWrap.FLAVOR != BuildConfigWrap.Flavor.FOSS
     val isMaterialYouActive = state.themeState.style == ThemeStyle.MATERIAL_YOU &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
@@ -161,7 +163,7 @@ fun GeneralSettingsScreen(
                 )
             }
             item {
-                if (!state.isUpgradeLocked) {
+                if (!upgradeLocked) {
                     SettingsListPreferenceItem(
                         icon = Icons.TwoTone.DarkMode,
                         title = stringResource(R.string.ui_theme_mode_label),
@@ -181,7 +183,7 @@ fun GeneralSettingsScreen(
                 }
             }
             item {
-                if (!state.isUpgradeLocked) {
+                if (!upgradeLocked) {
                     SettingsListPreferenceItem(
                         icon = Icons.TwoTone.Contrast,
                         title = stringResource(R.string.ui_theme_style_label),
@@ -210,10 +212,10 @@ fun GeneralSettingsScreen(
                     },
                     icon = Icons.TwoTone.Palette,
                     onClick = {
-                        if (state.isUpgradeLocked) onUpgrade() else showColorDialog = true
+                        if (upgradeLocked) onUpgrade() else showColorDialog = true
                     },
                     enabled = !isMaterialYouActive,
-                    requiresUpgrade = state.isUpgradeLocked && !isMaterialYouActive,
+                    requiresUpgrade = upgradeLocked && !isMaterialYouActive,
                 )
             }
             item {

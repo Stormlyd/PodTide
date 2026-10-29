@@ -180,8 +180,8 @@ fun SupportScreenHost(vm: SupportViewModel = hiltViewModel()) {
         SupportScreen(
             state = it,
             onNavigateUp = { vm.navUp() },
-            onIssueTracker = { vm.openUrl("https://github.com/Stormlyd/PodBridge/issues") },
-            onWiki = { vm.openUrl("https://github.com/Stormlyd/PodBridge") },
+            onIssueTracker = { vm.openUrl("https://github.com/Stormlyd/PodTide/issues") },
+            onWiki = { vm.openUrl("https://github.com/Stormlyd/PodTide") },
             onTroubleShooter = { vm.goToTroubleShooter() },
             onDebugLogToggle = { vm.onDebugLogToggle() },
             onOpenSession = { vm.openSession(it) },

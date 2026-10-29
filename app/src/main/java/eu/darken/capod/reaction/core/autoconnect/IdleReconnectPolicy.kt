@@ -17,7 +17,7 @@ class ReconnectAttemptLimiter {
             attempts[address] = Attempts(1, nowMillis)
             return true
         }
-        val delay = when (previous.count) { 1 -> 2_000; 2 -> 5_000; else -> 60_000 }
+        val delay = when (previous.count) { 1 -> 2_000; 2 -> 5_000; else -> 15_000 }
         if (nowMillis - previous.lastAt < delay) return false
         attempts[address] = Attempts(if (previous.count >= 3) 1 else previous.count + 1, nowMillis)
         return true

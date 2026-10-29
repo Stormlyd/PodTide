@@ -92,8 +92,9 @@ fun SinglePodsCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(8.dp),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(26.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
     ) {
         Column(
             modifier = Modifier
@@ -221,8 +222,9 @@ private fun ColumnScope.SinglePodsCardExpanded(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (!device.isLive) Modifier.alpha(0.7f) else Modifier),
-        shape = RoundedCornerShape(12.dp),
-        tonalElevation = 4.dp,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = .45f),
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier

@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -119,12 +120,21 @@ class BlePodMonitor @Inject constructor(
 
     val devices: Flow<List<BlePodSnapshot>> = combine(
         permissionTool.missingScanPermissions,
-        bluetoothManager.isBluetoothEnabled
-    ) { missingScanPermissions, isBluetoothEnabled ->
-        log(TAG) { "devices: missingScanPermissions=$missingScanPermissions, isBluetoothEnabled=$isBluetoothEnabled" }
-        missingScanPermissions.isEmpty() && isBluetoothEnabled
+        bluetoothManager.isBluetoothEnabled,
+        profilesRepo.profiles,
+        bluetoothManager.connectedDevices.onStart { emit(emptyList()) },
+        unfilteredOverride,
+    ) { missing, enabled, profiles, connected, troubleshooting ->
+        val ready = missing.isEmpty() && enabled
+        val addresses = profiles.mapNotNull { it.address?.takeIf(String::isNotBlank) }
+        val allConnected = addresses.isNotEmpty() && addresses.all { address ->
+            connected.any { it.address.equals(address, ignoreCase = true) }
+        }
+        // An explicit troubleshooting scan must still work while the audio device is connected.
+        ready to (!allConnected || troubleshooting)
     }
-        .flatMapLatest { isReady ->
+        .distinctUntilChanged()
+        .flatMapLatest { (isReady, shouldScan) ->
             if (!isReady) {
                 log(TAG, Logging.Priority.WARN) { "Bluetooth is not ready" }
                 flowOf(null)
@@ -135,7 +145,10 @@ class BlePodMonitor @Inject constructor(
                         emit(emptyList())
                     }
                 }
-                merge(createBleScanner(), staleEvictionTicker)
+                // Connected devices use the control channel for available live data. Cached BLE
+                // state ages normally; resume discovery immediately after a disconnect.
+                val scan = if (shouldScan) createBleScanner() else flowOf(emptyList())
+                merge(scan, staleEvictionTicker)
             }
         }
         .map { results -> results?.mapNotNull { podFactory.createPod(it) } }

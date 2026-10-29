@@ -5,12 +5,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.performClick
+import org.junit.Assert.assertEquals
 import eu.darken.capod.common.compose.PreviewWrapper
 import eu.darken.capod.common.compose.preview.MockPodDataProvider
 import org.junit.Test
 import testhelpers.compose.BaseComposeRobolectricTest
 
 class PopUpContentTest : BaseComposeRobolectricTest() {
+    @Test fun `popup offers a click action to open the app`() {
+        var opens = 0
+        var closes = 0
+        composeRule.setContent { PreviewWrapper { PopUpContent(MockPodDataProvider.dualPodMonitoredMixed().copy(isSystemConnected = true), { closes++ }, onOpen = { opens++ }) } }
+        composeRule.onNodeWithText("Audio connected").assertHasClickAction().performClick()
+        composeRule.onNodeWithContentDescription("Close").performClick()
+        assertEquals(1, opens)
+        assertEquals(1, closes)
+    }
+
     @Test fun `dual pods expose labels and missing values honestly`() {
         composeRule.setContent { PreviewWrapper {
             PopUpContent(MockPodDataProvider.dualPodBatteries(left = Float.NaN, right = 1.2f, case = .6f), {})

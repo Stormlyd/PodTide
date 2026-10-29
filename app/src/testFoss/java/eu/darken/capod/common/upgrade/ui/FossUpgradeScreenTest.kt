@@ -189,7 +189,6 @@ class FossUpgradeScreenTest : BaseComposeRobolectricTest() {
                 onSupport = {},
                 onWiki = {},
                 onChangelog = {},
-                onHelpTranslate = {},
                 onAcknowledgements = {},
                 onPrivacyPolicy = {},
                 onSponsor = {},

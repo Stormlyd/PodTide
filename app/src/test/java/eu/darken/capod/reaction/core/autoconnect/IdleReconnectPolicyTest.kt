@@ -29,6 +29,6 @@ class IdleReconnectPolicyTest {
         limiter.tryAcquire("pods", 2_100) shouldBe false
         limiter.tryAcquire("pods", 7_000) shouldBe true
         limiter.tryAcquire("pods", 17_000) shouldBe false
-        limiter.tryAcquire("pods", 67_001) shouldBe true
+        limiter.tryAcquire("pods", 22_000) shouldBe true
     }
 }

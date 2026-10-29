@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="96dp" android:height="96dp" android:viewportWidth="24" android:viewportHeight="24">
-  <path android:fillColor="#167A78" android:pathData="M5,15 L5,10 C5,6 9,4 12,4 C15,4 19,6 19,10 L19,15 L16,15 L16,10 C16,8 14,7 12,7 C10,7 8,8 8,10 L8,15 Z M3,13 L8,13 L8,20 L3,20 Z M16,13 L21,13 L21,20 L16,20 Z" />
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#FFFFFFFF" android:strokeWidth="4.2" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M31,45 C25,42 25,36 28,32 C32,27 38,27 42,31 C44,33 45,36 46,40 L60,66 M77,45 C83,42 83,36 80,32 C76,27 70,27 66,31 C64,33 63,36 62,40 L48,66" />
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#FFFFFFFF" android:strokeWidth="3" android:strokeLineCap="round" android:pathData="M30,74 C36,69 42,69 48,74 C54,79 60,79 66,74 C72,69 78,69 82,72 M36,82 C41,79 45,79 50,82 C55,85 60,85 65,82 C69,80 72,79 76,80" />
 </vector>

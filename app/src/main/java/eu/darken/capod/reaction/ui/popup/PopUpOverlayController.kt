@@ -2,6 +2,8 @@ package eu.darken.capod.reaction.ui.popup
 
 import android.app.AppOpsManager
 import android.content.Context
+import android.content.Intent
+import eu.darken.capod.main.ui.MainActivity
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.os.Build
@@ -112,10 +114,11 @@ internal class PopUpOverlayController(
                     state.value?.let { currentDevice ->
                         CapodTheme(state = generalSettings.currentThemeState) {
                             val onClose = { if (deviceState === state) close() }
+                            val onOpen = { close(); appContext.startActivity(Intent(appContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)) }
                             val modifier = Modifier.heightIn(max = height.value.dp)
                             when (style) {
-                                Style.BOTTOM -> PopUpContent(currentDevice, onClose, modifier)
-                                Style.TOP -> TopPopUpContent(currentDevice, onClose, modifier)
+                                Style.BOTTOM -> PopUpContent(currentDevice, onClose, modifier, onOpen)
+                                Style.TOP -> TopPopUpContent(currentDevice, onClose, modifier, onOpen)
                             }
                         }
                     }

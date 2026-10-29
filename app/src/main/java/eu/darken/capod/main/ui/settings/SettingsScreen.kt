@@ -1,9 +1,15 @@
 package eu.darken.capod.main.ui.settings
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.twotone.ArrowBack
+import androidx.compose.material.icons.automirrored.twotone.KeyboardArrowRight
 import androidx.compose.material.icons.twotone.Book
 import androidx.compose.material.icons.automirrored.twotone.MenuBook
 import androidx.compose.material.icons.twotone.DevicesOther
@@ -11,14 +17,21 @@ import androidx.compose.material.icons.twotone.Favorite
 import androidx.compose.material.icons.twotone.Settings
 import androidx.compose.material.icons.twotone.Stars
 import androidx.compose.material.icons.twotone.SupportAgent
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -49,8 +62,8 @@ fun SettingsScreenHost(vm: SettingsViewModel = hiltViewModel()) {
             onDeviceManager = { vm.navTo(Nav.Main.DeviceManager) },
             onUpgradeStatus = { vm.navTo(Nav.Main.Upgrade(manage = true)) },
             onSupport = { vm.navTo(Nav.Settings.Support) },
-            onWiki = { vm.openUrl("https://github.com/Stormlyd/PodBridge") },
-            onChangelog = { vm.openUrl("https://github.com/Stormlyd/PodBridge/releases") },
+            onWiki = { vm.openUrl("https://github.com/Stormlyd/PodTide") },
+            onChangelog = { vm.openUrl("https://github.com/Stormlyd/PodTide/releases") },
             onAcknowledgements = { vm.navTo(Nav.Settings.Acknowledgements) },
             onPrivacyPolicy = { vm.openUrl(PrivacyPolicy.URL) },
             onSponsor = { url -> vm.openUrl(url) },
@@ -107,66 +120,70 @@ fun SettingsScreen(
             contentPadding = innerPadding,
         ) {
             item {
-                SettingsBaseItem(
-                    title = stringResource(R.string.settings_general_label),
-                    subtitle = stringResource(R.string.settings_general_description),
-                    icon = Icons.TwoTone.Settings,
-                    onClick = onGeneralSettings,
-                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                ) {
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                        Text(
+                            text = stringResource(R.string.podtide_settings_intro_title),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = stringResource(R.string.podtide_settings_intro_subtitle),
+                            modifier = Modifier.padding(top = 4.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
             item {
-                SettingsBaseItem(
-                    title = stringResource(R.string.settings_devices_label),
-                    subtitle = stringResource(R.string.settings_devices_description),
-                    icon = Icons.TwoTone.DevicesOther,
-                    onClick = onDeviceManager,
-                )
+                SettingsMenuGroup {
+                    SettingsMenuLink(stringResource(R.string.settings_general_label), stringResource(R.string.settings_general_description), onGeneralSettings, icon = Icons.TwoTone.Settings)
+                    SettingsMenuDivider()
+                    SettingsMenuLink(stringResource(R.string.settings_devices_label), stringResource(R.string.settings_devices_description), onDeviceManager, icon = Icons.TwoTone.DevicesOther)
+                }
             }
+            item { SettingsCategoryHeader(text = stringResource(R.string.settings_category_other_label)) }
             item {
-                SettingsCategoryHeader(text = stringResource(R.string.settings_category_other_label))
-            }
-            item {
-                SettingsBaseItem(
-                    title = stringResource(R.string.settings_support_label),
-                    subtitle = stringResource(R.string.settings_support_description),
-                    icon = Icons.TwoTone.SupportAgent,
-                    onClick = onSupport,
-                )
-            }
-            item {
-                SettingsBaseItem(
-                    title = stringResource(R.string.settings_wiki_label),
-                    subtitle = stringResource(R.string.settings_wiki_description),
-                    icon = Icons.AutoMirrored.TwoTone.MenuBook,
-                    onClick = onWiki,
-                )
-            }
-            item {
-                SettingsBaseItem(
-                    title = stringResource(R.string.changelog_label),
-                    subtitle = BuildConfigWrap.VERSION_DESCRIPTION,
-                    iconPainter = painterResource(R.drawable.ic_changelog_onsurface),
-                    onClick = onChangelog,
-                )
-            }
-            item {
-                SettingsBaseItem(
-                    title = stringResource(R.string.settings_acknowledgements_label),
-                    subtitle = stringResource(R.string.general_thank_you_label),
-                    icon = Icons.TwoTone.Favorite,
-                    onClick = onAcknowledgements,
-                )
-            }
-            item {
-                SettingsBaseItem(
-                    title = stringResource(R.string.settings_privacy_policy_label),
-                    subtitle = stringResource(R.string.settings_privacy_policy_desc),
-                    icon = Icons.TwoTone.Book,
-                    onClick = onPrivacyPolicy,
-                )
+                SettingsMenuGroup {
+                    SettingsMenuLink(stringResource(R.string.settings_support_label), stringResource(R.string.settings_support_description), onSupport, icon = Icons.TwoTone.SupportAgent)
+                    SettingsMenuDivider()
+                    SettingsMenuLink(stringResource(R.string.settings_wiki_label), stringResource(R.string.settings_wiki_description), onWiki, icon = Icons.AutoMirrored.TwoTone.MenuBook)
+                    SettingsMenuDivider()
+                    SettingsMenuLink(stringResource(R.string.changelog_label), BuildConfigWrap.VERSION_DESCRIPTION, onChangelog, iconPainter = painterResource(R.drawable.ic_changelog_onsurface))
+                    SettingsMenuDivider()
+                    SettingsMenuLink(stringResource(R.string.settings_acknowledgements_label), stringResource(R.string.general_thank_you_label), onAcknowledgements, icon = Icons.TwoTone.Favorite)
+                    SettingsMenuDivider()
+                    SettingsMenuLink(stringResource(R.string.settings_privacy_policy_label), stringResource(R.string.settings_privacy_policy_desc), onPrivacyPolicy, icon = Icons.TwoTone.Book)
+                }
             }
         }
     }
+}
+
+
+@Composable
+private fun SettingsMenuGroup(content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) { Column(content = content) }
+}
+
+@Composable
+private fun SettingsMenuDivider() {
+    HorizontalDivider(Modifier.padding(start = 72.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .45f))
+}
+
+@Composable
+private fun SettingsMenuLink(title: String, subtitle: String, onClick: () -> Unit, icon: ImageVector? = null, iconPainter: Painter? = null) {
+    SettingsBaseItem(title = title, subtitle = subtitle, onClick = onClick, icon = icon, iconPainter = iconPainter, grouped = true,
+        trailingContent = { Icon(Icons.AutoMirrored.TwoTone.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) })
 }
 
 @Preview2

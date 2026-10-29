@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="podtide_settings_intro_title">你的聆听空间</string>
+    <string name="podtide_settings_intro_subtitle">管理耳机、连接与应用偏好</string>
+</resources>

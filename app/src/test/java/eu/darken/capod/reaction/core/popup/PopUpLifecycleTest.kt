@@ -123,7 +123,7 @@ class PopUpLifecycleTest : BaseTest() {
     }
 
     @Test
-    fun `stale OPEN followed by identical fresh OPEN shows once and recovery after lapse shows once`() = runTest {
+    fun `stale OPEN recovery does not redisplay an already shown open case`() = runTest {
         val clock = TestTimeSource(elapsedRealtimeNanosValue = 100_000_000_000L)
         val deviceFlow = MutableStateFlow<PodDevice?>(null)
         val monitor = mockk<DeviceMonitor> { every { primaryDeviceByTier } returns deviceFlow }
@@ -165,11 +165,11 @@ class PopUpLifecycleTest : BaseTest() {
         hidden.size shouldBe 1
         deviceFlow.value = open(clock.elapsedRealtimeNanos())
         runCurrent()
-        shown.size shouldBe 2
+        shown.size shouldBe 1
         clock.advanceBy(Duration.ofSeconds(1))
         deviceFlow.value = open(clock.elapsedRealtimeNanos())
         runCurrent()
-        shown.size shouldBe 2
+        shown.size shouldBe 1
     }
 
     @Test

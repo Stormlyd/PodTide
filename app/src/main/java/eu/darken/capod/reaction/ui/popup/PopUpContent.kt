@@ -1,5 +1,14 @@
 package eu.darken.capod.reaction.ui.popup
 
+import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -43,14 +52,15 @@ import kotlin.math.roundToInt
 
 /** The production overlay card. Its surface is translucent; it does not sample or blur other apps. */
 @Composable
-fun PopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun PopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Modifier, onOpen: () -> Unit = {}) {
     val colors = MaterialTheme.colorScheme
+    val proArtwork = device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)
     val shape = RoundedCornerShape(30.dp)
     CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
         BoxWithConstraints(modifier.padding(8.dp)) {
             val compact = maxHeight < 430.dp
             Column(
-                Modifier.fillMaxWidth().shadow(10.dp, shape).clip(shape)
+                Modifier.fillMaxWidth().shadow(10.dp, shape).clip(shape).clickable(onClick = onOpen)
                     .background(Brush.verticalGradient(listOf(colors.surface.copy(alpha = .98f), colors.surfaceContainer.copy(alpha = .96f))))
                     .border(1.dp, colors.outlineVariant.copy(alpha = .45f), shape)
                     .padding(horizontal = 20.dp, vertical = 16.dp),
@@ -77,14 +87,14 @@ fun PopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Mo
                         device.hasDualPods -> {
                             // At accessibility font sizes use roomy rows, keeping labels and percentages intact.
                             if (LocalDensity.current.fontScale > 1.5f) {
-                                BatteryRing(stringResource(R.string.popup_left), device.batteryLeft, device.isLeftPodCharging == true, device.leftPodIcon, horizontal = true)
-                                if (device.hasCase) BatteryRing(stringResource(R.string.popup_case), device.batteryCase, device.isCaseCharging == true, device.caseIcon, horizontal = true)
-                                BatteryRing(stringResource(R.string.popup_right), device.batteryRight, device.isRightPodCharging == true, device.rightPodIcon, horizontal = true)
+                                BatteryRing(stringResource(R.string.popup_left), device.batteryLeft, device.isLeftPodCharging == true, if (proArtwork) R.drawable.popup_pro_earbud else device.leftPodIcon, horizontal = true)
+                                if (device.hasCase) BatteryRing(stringResource(R.string.popup_case), device.batteryCase, device.isCaseCharging == true, if (proArtwork) R.drawable.popup_pro_case else device.caseIcon, horizontal = true)
+                                BatteryRing(stringResource(R.string.popup_right), device.batteryRight, device.isRightPodCharging == true, if (proArtwork) R.drawable.popup_pro_earbud else device.rightPodIcon, horizontal = true, mirrorIcon = proArtwork)
                             } else {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                                    BatteryRing(stringResource(R.string.popup_left), device.batteryLeft, device.isLeftPodCharging == true, device.leftPodIcon, Modifier.weight(1f))
-                                    if (device.hasCase) BatteryRing(stringResource(R.string.popup_case), device.batteryCase, device.isCaseCharging == true, device.caseIcon, Modifier.weight(1f))
-                                    BatteryRing(stringResource(R.string.popup_right), device.batteryRight, device.isRightPodCharging == true, device.rightPodIcon, Modifier.weight(1f))
+                                    BatteryRing(stringResource(R.string.popup_left), device.batteryLeft, device.isLeftPodCharging == true, if (proArtwork) R.drawable.popup_pro_earbud else device.leftPodIcon, Modifier.weight(1f))
+                                    if (device.hasCase) BatteryRing(stringResource(R.string.popup_case), device.batteryCase, device.isCaseCharging == true, if (proArtwork) R.drawable.popup_pro_case else device.caseIcon, Modifier.weight(1f))
+                                    BatteryRing(stringResource(R.string.popup_right), device.batteryRight, device.isRightPodCharging == true, if (proArtwork) R.drawable.popup_pro_earbud else device.rightPodIcon, Modifier.weight(1f), mirrorIcon = proArtwork)
                                 }
                             }
                         }
@@ -103,7 +113,21 @@ private fun PopupArtwork(device: PodDevice, compact: Boolean) {
     val pro = device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)
     val height = if (compact) 100.dp else 182.dp
     if (pro) {
-        Image(painterResource(R.drawable.popup_pro_hero), null, Modifier.fillMaxWidth().height(height), contentScale = ContentScale.Fit)
+        var revealed by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { revealed = true }
+        val rise by animateFloatAsState(if (revealed) 1f else 0f, tween(750), label = "earbud rise")
+        Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.BottomCenter) {
+            Image(painterResource(R.drawable.popup_pro_case), null,
+                Modifier.fillMaxWidth(.80f).height(height * .68f), contentScale = ContentScale.Fit)
+            Image(painterResource(R.drawable.popup_pro_earbud), null,
+                Modifier.align(Alignment.TopCenter).offset(x = (-44).dp, y = (30 * (1f - rise)).dp)
+                    .height(height * .57f).width(height * .57f).graphicsLayer { alpha = .5f + .5f * rise },
+                contentScale = ContentScale.Fit)
+            Image(painterResource(R.drawable.popup_pro_earbud), null,
+                Modifier.align(Alignment.TopCenter).offset(x = 44.dp, y = (30 * (1f - rise)).dp)
+                    .height(height * .57f).width(height * .57f).graphicsLayer { scaleX = -1f; alpha = .5f + .5f * rise },
+                contentScale = ContentScale.Fit)
+        }
     } else if (device.hasDualPods) {
         Row(Modifier.fillMaxWidth().height(height).padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
             Image(painterResource(device.leftPodIcon), null, Modifier.weight(1f).fillMaxHeight(), contentScale = ContentScale.Fit)
@@ -116,7 +140,7 @@ private fun PopupArtwork(device: PodDevice, compact: Boolean) {
 }
 
 @Composable
-private fun BatteryRing(label: String, battery: Float, charging: Boolean, iconRes: Int, modifier: Modifier = Modifier, horizontal: Boolean = false) {
+private fun BatteryRing(label: String, battery: Float, charging: Boolean, iconRes: Int, modifier: Modifier = Modifier, horizontal: Boolean = false, mirrorIcon: Boolean = false) {
     val valid = battery.isFinite() && battery in 0f..1f
     val value = if (valid) "${(battery * 100).roundToInt()}%" else stringResource(R.string.popup_battery_missing)
     val chargingText = if (charging) stringResource(R.string.popup_charging) else ""
@@ -133,21 +157,32 @@ private fun BatteryRing(label: String, battery: Float, charging: Boolean, iconRe
                 drawArc(track, -90f, 360f, false, offset, arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
                 if (valid && battery > 0f) drawArc(accent, -90f, 360f * battery, false, offset, arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
             }
-            if (charging) Icon(Icons.Rounded.Bolt, null, Modifier.size(26.dp), tint = accent)
-            else Image(painterResource(iconRes), null, Modifier.size(32.dp), contentScale = ContentScale.Fit)
+            Image(painterResource(iconRes), null, Modifier.size(46.dp).graphicsLayer { scaleX = if (mirrorIcon) -1f else 1f }, contentScale = ContentScale.Crop)
         }
     }
     if (horizontal) {
         Row(modifier.fillMaxWidth().padding(vertical = 6.dp).clearAndSetSemantics { contentDescription = description }, verticalAlignment = Alignment.CenterVertically) {
             ring()
-            Text(label, Modifier.weight(1f).padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium)
+            Row(Modifier.weight(1f).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(label, style = MaterialTheme.typography.bodyMedium)
+                if (charging) {
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Rounded.Bolt, null, Modifier.size(16.dp), tint = accent)
+                }
+            }
             Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
     } else {
         Column(modifier.clearAndSetSemantics { contentDescription = description }, horizontalAlignment = Alignment.CenterHorizontally) {
             ring()
             Spacer(Modifier.height(10.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant, textAlign = TextAlign.Center)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                Text(label, style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant, textAlign = TextAlign.Center)
+                if (charging) {
+                    Spacer(Modifier.width(2.dp))
+                    Icon(Icons.Rounded.Bolt, null, Modifier.size(14.dp), tint = accent)
+                }
+            }
             Spacer(Modifier.height(3.dp))
             Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
         }

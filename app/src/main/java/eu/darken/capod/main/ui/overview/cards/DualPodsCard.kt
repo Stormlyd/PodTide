@@ -5,6 +5,8 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +27,7 @@ import androidx.compose.material.icons.twotone.BatteryChargingFull
 import androidx.compose.material.icons.twotone.GridView
 import androidx.compose.material.icons.twotone.Tune
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -37,6 +39,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.StrokeCap
@@ -107,15 +111,25 @@ fun DualPodsCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(8.dp),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(26.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
     ) {
         Column(
             modifier = Modifier
                 .padding(16.dp)
                 .animateContentSize(),
         ) {
-            // Header
+            // Give the device its own visual anchor in the expanded view.
+            if (!isCollapsed) {
+                Image(
+                    painter = painterResource(if (device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)) R.drawable.popup_pro_hero else device.iconRes),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxWidth().height(112.dp),
+                    contentScale = ContentScale.Fit,
+                )
+                Spacer(Modifier.height(6.dp))
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -128,13 +142,15 @@ fun DualPodsCard(
                         }
                     ),
             ) {
-                Image(
-                    painter = painterResource(device.iconRes),
-                    contentDescription = null,
-                    modifier = Modifier.size(44.dp),
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
+                if (isCollapsed) {
+                    Image(
+                        painter = painterResource(if (device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)) R.drawable.popup_pro_hero else device.iconRes),
+                        contentDescription = null,
+                        modifier = Modifier.size(56.dp),
+                        contentScale = ContentScale.Fit,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
 
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
@@ -230,13 +246,14 @@ private fun ColumnScope.DualPodsCardExpanded(
     val context = LocalContext.current
     Spacer(modifier = Modifier.height(16.dp))
 
-    // Circular battery gauges side by side
+    // Left and right earbud battery cards
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (!device.isLive) Modifier.alpha(0.7f) else Modifier),
-        shape = RoundedCornerShape(12.dp),
-        tonalElevation = 4.dp,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = .45f),
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -246,7 +263,8 @@ private fun ColumnScope.DualPodsCardExpanded(
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
                 PodGauge(
-                    iconRes = device.leftPodIcon,
+                    label = stringResource(R.string.popup_left),
+                    iconRes = if (device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)) R.drawable.popup_pro_earbud else device.leftPodIcon,
                     batteryPercent = device.batteryLeft,
                     chargingState = device.leftPodChargingState
                         ?: device.isLeftPodCharging?.let { if (it) AapPodState.ChargingState.CHARGING else null },
@@ -260,7 +278,9 @@ private fun ColumnScope.DualPodsCardExpanded(
                 )
 
                 PodGauge(
-                    iconRes = device.rightPodIcon,
+                    label = stringResource(R.string.popup_right),
+                    iconRes = if (device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)) R.drawable.popup_pro_earbud else device.rightPodIcon,
+                    mirrorIcon = device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3),
                     batteryPercent = device.batteryRight,
                     chargingState = device.rightPodChargingState
                         ?: device.isRightPodCharging?.let { if (it) AapPodState.ChargingState.CHARGING else null },
@@ -317,6 +337,7 @@ private fun ColumnScope.DualPodsCardExpanded(
 
 @Composable
 private fun PodGauge(
+    label: String,
     iconRes: Int,
     batteryPercent: Float,
     chargingState: AapPodState.ChargingState?,
@@ -325,6 +346,7 @@ private fun PodGauge(
     isMicrophone: Boolean,
     showMicrophone: Boolean,
     modifier: Modifier = Modifier,
+    mirrorIcon: Boolean = false,
     timeRemaining: String? = null,
     untilCharged: String? = null,
 ) {
@@ -340,69 +362,49 @@ private fun PodGauge(
     val ringColor = tier.fillColor()
 
     Column(
-        modifier = modifier.batteryTierState(tier),
+        modifier = modifier.padding(horizontal = 4.dp).clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow).padding(vertical = 10.dp, horizontal = 8.dp)
+            .batteryTierState(tier),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Ring with icon inside
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(68.dp),
-        ) {
-            // Track ring
-            CircularProgressIndicator(
-                progress = { 1f },
-                modifier = Modifier.size(68.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                strokeWidth = 6.dp,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                strokeCap = StrokeCap.Round,
-            )
-
-            // Progress ring
-            if (isKnown) {
-                CircularProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier.size(68.dp),
-                    color = ringColor,
-                    strokeWidth = 6.dp,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    strokeCap = StrokeCap.Round,
-                )
-            }
-
-            // Pod icon
-            Image(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                modifier = Modifier.size(36.dp),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Battery percentage, with the time-remaining estimate inline next to it
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Image(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            modifier = Modifier.size(64.dp).graphicsLayer { scaleX = if (mirrorIcon) -1f else 1f },
+            contentScale = if (iconRes == R.drawable.popup_pro_earbud) ContentScale.Crop else ContentScale.Fit,
+        )
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = formatBatteryPercent(context, batteryPercent),
+            style = MaterialTheme.typography.titleMedium,
+            color = tier.textColorOrNull() ?: if (isKnown) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        if (timeRemaining != null) {
             Text(
-                text = formatBatteryPercent(context, batteryPercent),
-                style = MaterialTheme.typography.titleMedium,
-                color = tier.textColorOrNull() ?: if (isKnown) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.alignByBaseline(),
+                text = timeRemaining,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
-            if (timeRemaining != null) {
-                Text(
-                    text = "· $timeRemaining",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.alignByBaseline(),
-                )
-            }
         }
 
         Spacer(modifier = Modifier.height(4.dp))
+
+        if (isKnown) {
+            LinearProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(4.dp),
+                color = ringColor,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                strokeCap = StrokeCap.Round,
+            )
+            Spacer(Modifier.height(6.dp))
+        }
 
         // Status chips
         StatusChipRow(
@@ -437,7 +439,7 @@ private fun CaseRow(
                 .batteryTierState(tier),
         ) {
             Image(
-                painter = painterResource(device.caseIcon),
+                painter = painterResource(if (device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)) R.drawable.popup_pro_case else device.caseIcon),
                 contentDescription = null,
                 modifier = Modifier.size(28.dp),
             )

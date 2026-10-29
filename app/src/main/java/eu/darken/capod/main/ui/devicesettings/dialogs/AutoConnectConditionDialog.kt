@@ -73,7 +73,7 @@ internal fun AutoConnectConditionDialog(
                                 text = stringResource(condition.labelRes),
                                 style = MaterialTheme.typography.bodyLarge,
                             )
-                            if (condition == AutoConnectCondition.CASE_OPEN) {
+                            if (condition == AutoConnectCondition.WHEN_SEEN) {
                                 Text(
                                     text = stringResource(R.string.autoconnect_guidance_recommended),
                                     style = MaterialTheme.typography.labelMedium,

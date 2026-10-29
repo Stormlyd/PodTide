@@ -1,7 +1,7 @@
 <resources>
     <string name="settings_background_help_title">Background running help</string>
     <string name="settings_background_help_summary">Check Android battery and background restrictions</string>
-    <string name="settings_background_help_body">If background monitoring stops, check the system battery and background activity restrictions for PodBridge. Menu names and paths vary by phone manufacturer and Android version. The ColorOS path below is one example. PodBridge cannot read this manufacturer-specific setting. Exempting the app from Android battery optimization does not confirm that background activity is fully allowed.</string>
+    <string name="settings_background_help_body">If background monitoring stops, check the system battery and background activity restrictions for PodTide. Menu names and paths vary by phone manufacturer and Android version. The ColorOS path below is one example. PodTide cannot read this manufacturer-specific setting. Exempting the app from Android battery optimization does not confirm that background activity is fully allowed.</string>
     <string name="settings_background_help_path">OPPO / ColorOS example: App details → Battery usage → Fully allow background activity</string>
     <string name="settings_background_help_open">Open app details</string>
     <string name="settings_background_help_failure">Could not open app details.</string>

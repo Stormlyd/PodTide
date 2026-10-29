@@ -73,6 +73,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import eu.darken.capod.common.BuildConfigWrap
 import eu.darken.capod.R
 import eu.darken.capod.common.compose.Preview2
 import eu.darken.capod.common.compose.PreviewWrapper
@@ -98,6 +99,7 @@ fun WidgetConfigurationScreen(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    val effectivePro = state.isPro || BuildConfigWrap.FLAVOR == BuildConfigWrap.Flavor.FOSS
     val screenHPad = 16.dp
     val cardPad = 16.dp
 
@@ -371,7 +373,7 @@ fun WidgetConfigurationScreen(
         // Bottom bar
         Surface(tonalElevation = 3.dp) {
             Column(modifier = Modifier.windowInsetsPadding(systemBarsAndCutoutInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))) {
-                if (!state.isPro) {
+                if (!effectivePro) {
                     Text(
                         text = stringResource(R.string.common_feature_requires_pro_msg),
                         style = MaterialTheme.typography.labelLarge,
@@ -394,10 +396,10 @@ fun WidgetConfigurationScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = onConfirm,
-                        enabled = if (state.isPro) state.canConfirm else true,
+                        enabled = if (effectivePro) state.canConfirm else true,
                     ) {
                         Text(
-                            text = if (state.isPro) {
+                            text = if (effectivePro) {
                                 stringResource(android.R.string.ok)
                             } else {
                                 stringResource(R.string.general_upgrade_action)

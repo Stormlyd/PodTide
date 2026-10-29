@@ -4,7 +4,9 @@ PodTide 是一款面向 Android 的开源 AirPods 伴侣应用，提供电量显
 
 > **后台运行提示：请检查手机对 PodTide 的电池和后台活动限制。** 为了在应用位于后台时检测耳机、显示弹窗和尝试自动连接，建议在系统应用设置中允许后台活动。不同品牌和系统的名称、路径可能不同。
 >
-> **OPPO / ColorOS 示例：** 系统应用详情 → 耗电管理 → 完全允许后台行为。Find X9 上的初步测试中，允许该选项后，原本因系统冻结而失效的后台开盖连接恢复；用户也确认 dev7 等待至少30秒后后台开盖连接及弹窗动画正常。其他 Android 设备请在各自的系统设置中寻找相应选项。
+> 如果手机提供最近任务锁定功能，请在最近任务中锁定 PodTide，减少应用被系统清理的机会；设置名称及效果因品牌而异。
+>
+> **OPPO / ColorOS 示例：** 系统应用详情 → 耗电管理 → 完全允许后台行为。Find X9 上的初步测试中，允许该选项后曾恢复后台开盖连接。后续仍观察到系统冻结和清理进程；在最近任务中锁定应用后，一次等待至少30秒的测试连接成功，长期稳定性仍需验证。其他 Android 设备请在各自的系统设置中寻找相应选项。
 
 ## 适用设备和安装
 
@@ -22,11 +24,22 @@ PodTide 是一款面向 Android 的开源 AirPods 伴侣应用，提供电量显
 - 通知中的实时耳机电量可以选择开启；关闭时保留后台监测通知，并减少电量变化引起的通知更新。后台检测仍需要蓝牙监听，实际耗电随手机和使用情况变化。
 - 提供 Apple 官方“查找”网页入口。该入口由浏览器打开，原生账号登录和位置显示仍在开发中。
 
+## Root 与系统兼容性
+
+PodTide 当前公开版本按免 Root 方式实现。基础电量和广播检测依赖蓝牙权限，部分高级控制是否可用还取决于设备型号、系统版本及蓝牙实现。OPPO Find X9 / ColorOS 已进行免 Root 测试；其他机型和 vivo 的兼容性有待实测。本项目目前没有经过验证的 Root 模式，不能将需要 Root 视为已支持的解决办法。
+
+参考项目 LibrePods 表示 ColorOS / OxygenOS 16、realme UI 7 及特定 Android 16 QPR3 Pixel 设备的大部分功能可免 Root；这是 LibrePods 自身的兼容性资料，并不等同于 PodTide 的实测结果。参见 [LibrePods Android 说明](https://github.com/librepods-org/librepods/blob/main/android/README.md) 和 [CAPod 兼容性追踪](https://github.com/d4rken-org/capod/issues/538)。
 ## 使用提示
 
-自动连接条件推荐选择“开盖时”：它可以避免关盖时发起连接尝试。为了发现下次开盖，应用仍需在后台监听蓝牙广播。后台扫描速度及弹窗出现时间可能因手机、电池策略和系统版本而异。
+如果更重视连接成功率，可以选择“检测到设备时”；“开盖时”则可以减少关盖时的连接尝试。耳机断开时应用会监听蓝牙广播，匹配的已配置设备都连接后停止扫描，断开后恢复。暂停扫描期间，依赖广播的盒盖和佩戴信息可能暂不更新。后台扫描速度及弹窗出现时间可能因手机、电池策略和系统版本而异。
 
 如果后台无电量更新或开盖不重连，请先检查蓝牙、附近设备和通知权限，再检查系统电池管理是否允许 PodTide 后台活动。应用提供“后台运行帮助”入口；厂商专属开关的实际状态需要在系统设置中确认。
+
+## dev12 已知问题
+
+- 少数情况下耳机已经连接，弹窗仍可能重复出现；后续版本将继续优化。
+- 顶部状态弹窗在部分设备上可能影响连接；遇到该问题请保持关闭并使用底部弹窗。
+- 心率和头部姿态功能尚未在此测试版中开放。
 
 ## 已处理的关键问题
 
@@ -52,10 +65,3 @@ Windows 可使用 `gradlew.bat`。正式发行包使用 `assembleFossRelease`，
 ## 开源与致谢
 
 项目以 GPL-3.0 发布，保留上游版权声明；第三方组件与许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。感谢 [CAPod](https://github.com/d4rken-org/capod) 与 [LibrePods](https://github.com/librepods-org/librepods) 项目及其贡献者。PodTide 是独立项目，与 Apple 没有官方关联；AirPods 等商标属于其各自权利人。
-
-
-## Root 与系统兼容性
-
-PodTide 当前公开版本按免 Root 方式实现。基础电量和广播检测依赖蓝牙权限，部分高级控制是否可用还取决于设备型号、系统版本及蓝牙实现。OPPO Find X9 / ColorOS 已进行免 Root 测试；其他机型和 vivo 的兼容性有待实测。本项目目前没有经过验证的 Root 模式。
-
-参考项目 LibrePods 表示 ColorOS / OxygenOS 16、realme UI 7 及特定 Android 16 QPR3 Pixel 设备的大部分功能可免 Root；这是 LibrePods 自身的兼容性资料，并不等同于 PodTide 的实测结果。参见 [LibrePods Android 说明](https://github.com/librepods-org/librepods/blob/main/android/README.md) 和 [CAPod 兼容性追踪](https://github.com/d4rken-org/capod/issues/538)。

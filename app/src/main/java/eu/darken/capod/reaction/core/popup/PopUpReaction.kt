@@ -76,7 +76,8 @@ class PopUpReaction @Inject constructor(
             val isFirstFreshOpen = previous == null && isCaseOpenBroadcastFresh(current)
             val isFreshOpenAfterStale = isSameDeviceOrProfile &&
                 current.caseLidState == DualApplePods.LidState.OPEN &&
-                isCaseOpenBroadcastFresh(current) && !isCaseOpenBroadcastFresh(previous)
+                isCaseOpenBroadcastFresh(current) && !isCaseOpenBroadcastFresh(previous) &&
+                current.profileId?.let { !caseCoolDowns.containsKey(it) } == true
             if (!isSameDeviceWithCaseNowOpen && !isNewDeviceWithJustOpenedCase &&
                 !isFirstFreshOpen && !isFreshOpenAfterStale) {
                 return@mapNotNull null

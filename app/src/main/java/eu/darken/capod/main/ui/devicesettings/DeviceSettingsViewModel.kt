@@ -621,7 +621,7 @@ class DeviceSettingsViewModel @Inject constructor(
     }
 
     fun openIssueTracker() {
-        webpageTool.open("https://github.com/Stormlyd/PodBridge/issues")
+        webpageTool.open("https://github.com/Stormlyd/PodTide/issues")
     }
 
     fun openAapCompatibilityTracker() {

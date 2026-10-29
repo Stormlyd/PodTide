@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="autoconnect_guidance_background">Background listening continues while the case is closed. Your phone controls the scan timing.</string>
-    <string name="autoconnect_guidance_recommended">Recommended balance</string>
+    <string name="autoconnect_guidance_recommended">Recommended for connectivity</string>
     <string name="autoconnect_guidance_when_seen">Tries after a fresh detection when the earbuds are idle. This may make more connection attempts.</string>
     <string name="autoconnect_guidance_case_open">Waits for a fresh case-open signal before trying, avoiding closed-case attempts.</string>
     <string name="autoconnect_guidance_in_ear">Waits until the earbuds report that they are worn. Connection may take longer.</string>

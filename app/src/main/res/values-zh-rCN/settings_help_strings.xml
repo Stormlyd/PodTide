@@ -1,7 +1,7 @@
 <resources>
     <string name="settings_background_help_title">后台运行帮助</string>
     <string name="settings_background_help_summary">检查 Android 电池和后台活动限制</string>
-    <string name="settings_background_help_body">如果后台监测中断，请检查系统对 PodBridge 的电池和后台活动限制。菜单名称和路径会随手机厂商及 Android 版本变化，下方 ColorOS 路径仅作示例。PodBridge 无法读取该厂商选项的状态。忽略 Android 电池优化也不等于已开启“完全允许后台行为”。</string>
+    <string name="settings_background_help_body">如果后台监测中断，请检查系统对 PodTide 的电池和后台活动限制。菜单名称和路径会随手机厂商及 Android 版本变化，下方 ColorOS 路径仅作示例。PodTide 无法读取该厂商选项的状态。忽略 Android 电池优化也不等于已开启“完全允许后台行为”。</string>
     <string name="settings_background_help_path">OPPO / ColorOS 示例：应用详情 → 耗电管理 → 完全允许后台行为</string>
     <string name="settings_background_help_open">打开系统应用详情</string>
     <string name="settings_background_help_failure">无法打开系统应用详情。</string>

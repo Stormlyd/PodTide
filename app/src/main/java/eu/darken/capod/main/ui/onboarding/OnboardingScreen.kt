@@ -94,14 +94,6 @@ fun OnboardingScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = stringResource(R.string.onboarding_body4),
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
             Spacer(modifier = Modifier.height(32.dp))
 
             FilledTonalButton(onClick = onPrivacyPolicy) {

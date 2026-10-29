@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import eu.darken.capod.common.BuildConfigWrap
 import eu.darken.capod.R
 import eu.darken.capod.common.compose.Preview2
 import eu.darken.capod.common.compose.PreviewWrapper
@@ -266,7 +267,7 @@ fun DeviceSettingsScreen(
     val device = state.device
     val features = device?.model?.features
     val enabled = device?.isAapReady == true
-    val isPro = state.isPro
+    val isPro = state.isPro || BuildConfigWrap.FLAVOR == BuildConfigWrap.Flavor.FOSS
     // Hoisted out of DeviceInfoCard: the runtime warning banner opens the same detail sheet as the
     // card's info icon, and both entry points can be scrolled out of composition independently.
     var showDeviceDetails by rememberSaveable { mutableStateOf(false) }

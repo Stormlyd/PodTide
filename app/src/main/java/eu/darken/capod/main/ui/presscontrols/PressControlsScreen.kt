@@ -31,6 +31,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import eu.darken.capod.common.BuildConfigWrap
 import eu.darken.capod.R
 import eu.darken.capod.common.compose.Preview2
 import eu.darken.capod.common.compose.PreviewWrapper
@@ -224,7 +225,7 @@ fun PressControlsScreen(
                 item("mappings_card") {
                     PressMappingsCard(
                         stemActions = state.stemActions,
-                        isPro = state.isPro,
+                        isPro = state.isPro || BuildConfigWrap.FLAVOR == BuildConfigWrap.Flavor.FOSS,
                         supportsAncCycle = state.supportsAncCycle,
                         supportsAncToggle = state.supportsAncToggle,
                         onLeftSingle = onLeftSingle,

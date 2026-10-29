@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
     <string name="upgrade_badge_label">开源版</string>
-    <string name="upgrade_foss_preamble">PodBridge 是免费开源应用，已实现的功能均可免费使用。你也可以自愿支持原项目开发。</string>
+    <string name="upgrade_foss_preamble">PodTide 是免费开源应用，已实现的功能均可免费使用。你也可以自愿支持原项目开发。</string>
     <string name="upgrade_foss_sponsor_action">支持原项目开发</string>
     <string name="upgrade_foss_sponsor_subtitle">无广告。不跟踪。不受 Google Play 限制。</string>
     <string name="upgrade_foss_sponsor_returned_early">感谢关注和支持开源开发。</string>
@@ -14,7 +14,7 @@
     <string name="upgrade_screen_how_title">如何提供支持</string>
     <string name="upgrade_screen_how_body">已实现的功能均可免费使用。点击下方按钮可自愿支持原项目开发。</string>
     <string name="upgrade_screen_status_free_title">免费版</string>
-    <string name="upgrade_screen_status_free_body">你正在使用 PodBridge 开源版，已实现的功能均已免费开放。</string>
+    <string name="upgrade_screen_status_free_body">你正在使用 PodTide 开源版，已实现的功能均已免费开放。</string>
     <string name="upgrade_screen_status_free_action">查看功能说明</string>
     <string name="upgrade_screen_status_upgraded_title">功能已开放</string>
     <string name="upgrade_screen_recurring_title">持续支持</string>

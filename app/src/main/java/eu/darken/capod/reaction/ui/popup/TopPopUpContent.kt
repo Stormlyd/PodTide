@@ -1,5 +1,6 @@
 package eu.darken.capod.reaction.ui.popup
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -27,7 +28,7 @@ import kotlin.math.roundToInt
 
 /** Compact native status card. Only observed audio connection and individual batteries are shown. */
 @Composable
-fun TopPopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun TopPopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Modifier, onOpen: () -> Unit = {}) {
     val colors = MaterialTheme.colorScheme
     val proArtwork = device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)
     Surface(modifier.widthIn(max = 360.dp), shape = RoundedCornerShape(28.dp),
@@ -36,7 +37,7 @@ fun TopPopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier =
             .padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.Top) {
             // The complete content can scroll on short displays; the close affordance remains fixed.
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth().clickable(onClick = onOpen), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Image(painterResource(if (proArtwork) R.drawable.popup_pro_hero else device.iconRes), null,
                         Modifier.size(if (proArtwork) 56.dp else 44.dp), contentScale = ContentScale.Fit)
                     Text(device.label?.takeIf { it.isNotBlank() } ?: device.getLabel(LocalContext.current),
