@@ -13,55 +13,16 @@ import testhelpers.compose.BaseComposeRobolectricTest
 
 class GeneralSettingsHelpScreenTest : BaseComposeRobolectricTest() {
 
-    @Test
-    fun `popup styles are independently available in settings`() {
-        composeRule.setContent {
-            PreviewWrapper {
-                GeneralSettingsScreen(
-                    state = state(), onNavigateUp = {},
-                    onShowConnectedNotificationChanged = {}, onKeepNotificationAfterDisconnectChanged = {},
-                    onOffloadedFilteringDisabledChanged = {}, onOffloadedBatchingDisabledChanged = {},
-                    onUseIndirectScanResultCallbackChanged = {}, onHideUnmatchedDevicesChanged = {},
-                )
-            }
-        }
-        scrollTo("Top status popup")
-        composeRule.onNodeWithText("Top status popup").assertExists()
-        scrollTo("Bottom popup")
-        composeRule.onNodeWithText("Bottom popup").assertExists()
-    }
-    @Test fun `style controls write only explicit toggles and remain free with locked appearance`() {
-        var bottomWrites = 0
-        var topWrites = 0
-        var upgrades = 0
-        val current = androidx.compose.runtime.mutableStateOf(state().copy(isUpgradeLocked = true))
+    @Test fun `bottom popup remains available while top popup is removed`() {
         composeRule.setContent { PreviewWrapper {
-            GeneralSettingsScreen(
-                state = current.value, onNavigateUp = {},
+            GeneralSettingsScreen(state = state(), onNavigateUp = {},
                 onShowConnectedNotificationChanged = {}, onKeepNotificationAfterDisconnectChanged = {},
                 onOffloadedFilteringDisabledChanged = {}, onOffloadedBatchingDisabledChanged = {},
-                onUseIndirectScanResultCallbackChanged = {}, onHideUnmatchedDevicesChanged = {},
-                onUpgrade = { upgrades++ },
-                onShowBottomPopupChanged = { bottomWrites++; current.value = current.value.copy(showBottomPopup = it) },
-                onShowTopPopupChanged = { topWrites++; current.value = current.value.copy(showTopPopup = it) },
-            )
+                onUseIndirectScanResultCallbackChanged = {}, onHideUnmatchedDevicesChanged = {})
         } }
-        scrollTo("Top status popup")
-        composeRule.runOnIdle { assertEquals(0, bottomWrites + topWrites) }
-        composeRule.onNodeWithText("Top status popup").performClick()
-        composeRule.runOnIdle {
-            assertEquals(true, current.value.showBottomPopup)
-            assertEquals(true, current.value.showTopPopup)
-        }
         scrollTo("Bottom popup")
-        composeRule.onNodeWithText("Bottom popup").performClick()
-        composeRule.runOnIdle {
-            assertEquals(false, current.value.showBottomPopup)
-            assertEquals(true, current.value.showTopPopup)
-            assertEquals(1, bottomWrites)
-            assertEquals(1, topWrites)
-            assertEquals(0, upgrades)
-        }
+        composeRule.onNodeWithText("Bottom popup").assertExists()
+        composeRule.onNodeWithText("Top status popup").assertDoesNotExist()
     }
 
     private fun scrollTo(text: String) {

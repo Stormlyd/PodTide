@@ -39,6 +39,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnConnection = true)
             every { rawDataHex } returns emptyList()
             every { caseLidState } returns DualApplePods.LidState.UNKNOWN
+            every { isSystemConnected } returns false
             every { ble } returns if (withStaleBle) mockk { every { seenLastAt } returns clock.now().minusSeconds(120) } else null
         }
         val devices = MutableStateFlow(emptyList<BluetoothDevice2>())
@@ -71,6 +72,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf(lid.name)
             every { caseLidState } returns lid
+            every { isSystemConnected } returns false
             every { ble } returns mockk {
                 every { seenLastAt } returns clock.now()
                 every { scanResult } returns nativeScan(clock, clock.elapsedRealtimeNanos())
@@ -107,6 +109,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf(lid.name, timestamp.toString())
             every { caseLidState } returns lid
+            every { isSystemConnected } returns false
             every { ble } returns mockk {
                 every { seenLastAt } returns clock.now()
                 every { scanResult } returns nativeScan(clock, timestamp)
@@ -144,6 +147,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf("identical-OPEN-payload")
             every { caseLidState } returns DualApplePods.LidState.OPEN
+            every { isSystemConnected } returns false
             every { ble } returns mockk {
                 every { seenLastAt } returns clock.now()
                 every { scanResult } returns nativeScan(clock, nativeAt)
@@ -195,6 +199,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf("OPEN")
             every { caseLidState } returns DualApplePods.LidState.OPEN
+            every { isSystemConnected } returns false
             every { ble } returns mockk {
                 every { seenLastAt } answers { clock.now() }
                 every { scanResult } returns scan
@@ -207,6 +212,30 @@ class PopUpLifecycleTest : BaseTest() {
         advanceTimeBy(2_001)
         runCurrent()
         hidden.size shouldBe 1
+    }
+
+    @Test fun `already connected device ignores spurious case-open advertisements`() = runTest {
+        val clock = TestTimeSource(elapsedRealtimeNanosValue = 100_000_000_000L)
+        val deviceFlow = MutableStateFlow<PodDevice?>(null)
+        val monitor = mockk<DeviceMonitor> { every { primaryDeviceByTier } returns deviceFlow }
+        val bluetooth = mockk<BluetoothManager2> { every { connectedDevices } returns flowOf(emptyList()) }
+        val shown = mutableListOf<PopUpReaction.Event.PopupShow>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            PopUpReaction(monitor, bluetooth, clock).monitor().filterIsInstance<PopUpReaction.Event.PopupShow>().collect { shown += it }
+        }
+        fun connectedOpen(): PodDevice = mockk {
+            every { profileId } returns "owned-pods"
+            every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
+            every { rawDataHex } returns listOf("OPEN")
+            every { caseLidState } returns DualApplePods.LidState.OPEN
+            every { isSystemConnected } returns true
+            every { ble } returns mockk {
+                every { scanResult } returns nativeScan(clock, clock.elapsedRealtimeNanos())
+            }
+        }
+        deviceFlow.value = connectedOpen()
+        runCurrent()
+        shown.size shouldBe 0
     }
 
     private fun nativeScan(clock: TestTimeSource, timestamp: Long): BleScanResult {

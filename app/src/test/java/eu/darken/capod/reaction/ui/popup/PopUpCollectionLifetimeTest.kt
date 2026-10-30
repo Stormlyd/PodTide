@@ -128,18 +128,27 @@ class PopUpCollectionLifetimeTest {
         fun withBattery(value: Float) = device.copy(aap = AapPodState(batteries = mapOf(type to AapPodState.Battery(type, value, AapPodState.ChargingState.NOT_CHARGING))))
         notificationDevice.value = withBattery(0.8f)
         val service = service()
+        val captured = mutableListOf<Notification>()
+        every { service.notificationManager.notify(1, capture(captured)) } returns Unit
         try {
             service.onStartCommand(MonitorService.intent(context), 0, 1)
             runCurrent()
-            val captured = slot<Notification>()
-            verify(exactly = 1) { service.notificationManager.notify(1, capture(captured)) }
-            assertEquals(context.getString(R.string.app_name), captured.captured.extras.getString(Notification.EXTRA_TITLE))
-            assertTrue(captured.captured.extras.getString(Notification.EXTRA_TEXT).orEmpty().contains("monitor", ignoreCase = true))
-            assertNull(captured.captured.contentView)
+            verify(exactly = 1) { service.notificationManager.notify(1, any()) }
+            assertEquals(context.getString(R.string.app_name), captured.last().extras.getString(Notification.EXTRA_TITLE))
+            assertEquals(context.getString(R.string.monitor_notification_running), captured.last().extras.getString(Notification.EXTRA_TEXT))
+            assertNull(captured.last().contentView)
             notificationDevice.value = withBattery(0.17f)
             testScheduler.advanceTimeBy(1500)
             runCurrent()
             verify(exactly = 1) { service.notificationManager.notify(1, any()) }
+            notificationDevice.value = withBattery(0.17f).copy(isSystemConnected = true)
+            runCurrent()
+            verify(exactly = 2) { service.notificationManager.notify(1, any()) }
+            assertEquals(context.getString(R.string.monitor_notification_connected), captured.last().extras.getString(Notification.EXTRA_TEXT))
+            notificationDevice.value = withBattery(0.17f).copy(isSystemConnected = false)
+            runCurrent()
+            verify(exactly = 3) { service.notificationManager.notify(1, any()) }
+            assertEquals(context.getString(R.string.monitor_notification_running), captured.last().extras.getString(Notification.EXTRA_TEXT))
             verify { service.notificationManager.cancel(2) }
         } finally { service.onDestroy(); runCurrent() }
     }
@@ -170,7 +179,7 @@ class PopUpCollectionLifetimeTest {
             liveBattery.value = false
             runCurrent()
             verify { service.notificationManager.cancel(2) }
-            assertEquals(0, notificationDevice.subscriptionCount.value)
+            assertEquals(1, notificationDevice.subscriptionCount.value)
             assertEquals(0, estimates.subscriptionCount.value)
             assertEquals(context.getString(R.string.monitor_notification_running), primary.last().extras.getString(Notification.EXTRA_TEXT))
             val count = primary.size
@@ -299,34 +308,26 @@ class PopUpCollectionLifetimeTest {
         runCurrent()
     }
 
-    @Test fun `first applied policy precedes events and live switches do not replay shows`() = runTest {
+    @Test fun `first policy precedes events and enabling the popup does not replay old events`() = runTest {
         val ready = CompletableDeferred<Unit>()
         var eventCollected = false
         bottomFlow = flow { ready.await(); emit(false); awaitCancellation() }
-        topPolicy.value = true
         nextEvents = flow { eventCollected = true; emit(PopUpReaction.Event.PopupShow(java.time.Instant.EPOCH, device)); awaitCancellation() }
         val service = service()
         service.onStartCommand(MonitorService.intent(context), 0, 1)
         runCurrent()
         assertFalse(eventCollected)
-        assertTrue(attached.isEmpty())
         ready.complete(Unit)
         runCurrent()
         assertTrue(eventCollected)
-        assertEquals(1, attached.size)
-        topPolicy.value = false
-        runCurrent()
-        assertTrue(attached.isEmpty())
-        topPolicy.value = true
-        runCurrent()
         assertTrue(attached.isEmpty())
         service.onDestroy()
         runCurrent()
     }
-    @Test fun `policy failure retires both styles and stops event collection`() = runTest {
+    @Test fun `policy failure retires popup and stops event collection`() = runTest {
         val fail = CompletableDeferred<Unit>()
         var eventFinished = false
-        topFlow = flow { emit(true); fail.await(); error("settings read failed") }
+        bottomFlow = flow { emit(true); fail.await(); error("settings read failed") }
         nextEvents = flow {
             try { emit(PopUpReaction.Event.PopupShow(java.time.Instant.EPOCH, device)); awaitCancellation() }
             finally { eventFinished = true }
@@ -334,7 +335,7 @@ class PopUpCollectionLifetimeTest {
         val service = service()
         service.onStartCommand(MonitorService.intent(context), 0, 1)
         runCurrent()
-        assertEquals(2, attached.size)
+        assertEquals(1, attached.size)
         fail.complete(Unit)
         runCurrent()
         assertTrue(attached.isEmpty())
@@ -343,15 +344,15 @@ class PopUpCollectionLifetimeTest {
         service.onDestroy()
         runCurrent()
     }
-    @Test fun `normal event completion cancels owned policy child and releases both styles`() = runTest {
+    @Test fun `event completion cancels policy and releases popup`() = runTest {
         val end = CompletableDeferred<Unit>()
         var policyFinished = false
-        topFlow = flow { try { emit(true); awaitCancellation() } finally { policyFinished = true } }
+        bottomFlow = flow { try { emit(true); awaitCancellation() } finally { policyFinished = true } }
         nextEvents = flow { emit(PopUpReaction.Event.PopupShow(java.time.Instant.EPOCH, device)); end.await() }
         val service = service()
         service.onStartCommand(MonitorService.intent(context), 0, 1)
         runCurrent()
-        assertEquals(2, attached.size)
+        assertEquals(1, attached.size)
         end.complete(Unit)
         runCurrent()
         assertTrue(attached.isEmpty())
@@ -359,24 +360,23 @@ class PopUpCollectionLifetimeTest {
         service.onDestroy()
         runCurrent()
     }
-    @Test fun `normal policy completion cancels events and releases overlays`() = runTest {
+    @Test fun `policy completion cancels events and releases popup`() = runTest {
         val end = CompletableDeferred<Unit>()
         bottomFlow = flow { emit(true); end.await() }
-        topFlow = flow { emit(true); end.await() }
         nextEvents = flow { emit(PopUpReaction.Event.PopupShow(java.time.Instant.EPOCH, device)); awaitCancellation() }
         val service = service()
         service.onStartCommand(MonitorService.intent(context), 0, 1)
         runCurrent()
-        assertEquals(2, attached.size)
+        assertEquals(1, attached.size)
         end.complete(Unit)
         runCurrent()
         assertTrue(attached.isEmpty())
         service.onDestroy()
         runCurrent()
     }
-    @Test fun `delayed old policy cleanup cannot dismiss replacement styles`() = runTest {
+    @Test fun `delayed old policy cleanup cannot dismiss replacement popup`() = runTest {
         val finish = CompletableDeferred<Unit>()
-        topFlow = flow {
+        bottomFlow = flow {
             try { emit(true); awaitCancellation() }
             finally { withContext(NonCancellable) { finish.await() } }
         }
@@ -384,13 +384,13 @@ class PopUpCollectionLifetimeTest {
         val service = service()
         service.onStartCommand(MonitorService.intent(context), 0, 1)
         runCurrent()
-        assertEquals(2, attached.size)
-        topFlow = MutableStateFlow(true)
+        assertEquals(1, attached.size)
+        bottomFlow = MutableStateFlow(true)
         service.onStartCommand(MonitorService.intent(context, forceStart = true), 0, 2)
         assertTrue(attached.isEmpty())
         runCurrent()
         val replacement = attached.toList()
-        assertEquals(2, replacement.size)
+        assertEquals(1, replacement.size)
         finish.complete(Unit)
         runCurrent()
         assertEquals(replacement, attached)
@@ -417,10 +417,7 @@ class PopUpCollectionLifetimeTest {
         val terminatePolicy = CompletableDeferred<Unit>()
         val eventFinalizing = CompletableDeferred<Unit>()
         val releaseEvent = CompletableDeferred<Unit>()
-        bottomFlow = if (termination == Termination.POLICY_COMPLETION) flow {
-            emit(true); terminatePolicy.await()
-        } else MutableStateFlow(true)
-        topFlow = when (termination) {
+        bottomFlow = when (termination) {
             Termination.POLICY_FAILURE -> flow { emit(true); terminatePolicy.await(); error("policy failed") }
             Termination.POLICY_COMPLETION -> flow { emit(true); terminatePolicy.await() }
             Termination.MONITOR_CANCELLATION -> MutableStateFlow(true)
@@ -434,7 +431,7 @@ class PopUpCollectionLifetimeTest {
         try {
             service.onStartCommand(MonitorService.intent(context), 0, 1)
             runCurrent()
-            assertEquals(2, attached.size)
+            assertEquals(1, attached.size)
             assertNotNull(owner())
             if (termination == Termination.MONITOR_CANCELLATION) {
                 val scope = MonitorService::class.java.getDeclaredField("monitorScope").apply { isAccessible = true }.get(service) as MonitorCoroutineScope
@@ -453,7 +450,7 @@ class PopUpCollectionLifetimeTest {
             runCurrent()
             val replacement = attached.toList()
             val replacementOwner = owner()
-            assertEquals(2, replacement.size)
+            assertEquals(1, replacement.size)
             assertNotNull(replacementOwner)
             releaseEvent.complete(Unit)
             runCurrent()

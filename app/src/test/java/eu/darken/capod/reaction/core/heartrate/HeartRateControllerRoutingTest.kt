@@ -125,6 +125,27 @@ class HeartRateControllerRoutingTest {
         job.cancelAndJoin()
     }
 
+    @Test fun `closing a measurement stops the stream and ignores late samples`() = runTest(StandardTestDispatcher()) {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        controller.clearHistory(profileId)
+        select(selectedAddress)
+        devices.value = listOf(readyDevice(selectedAddress))
+        controller.start(profileId)
+        val job = controller.monitor().launchIn(backgroundScope)
+        runCurrent()
+        reports.tryEmit(selectedAddress to HeartRateReport(78, SystemClock.elapsedRealtime())) shouldBe true
+        runCurrent()
+        controller.state(profileId).reading.bpm shouldBe 78
+        controller.stop(profileId)
+        runCurrent()
+        coVerify(exactly = 1) { manager.sendCommand(selectedAddress, AapCommand.SetHeartRateTracking(false, 19)) }
+        reports.tryEmit(selectedAddress to HeartRateReport(95, SystemClock.elapsedRealtime())) shouldBe true
+        runCurrent()
+        controller.state(profileId).reading.bpm shouldBe null
+        controller.state(profileId).history.map { it.bpm } shouldBe listOf(78)
+        job.cancelAndJoin()
+    }
+
     @Test fun `removed selection never starts despite ready AAP and old display address`() = runTest(StandardTestDispatcher()) {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         select(null)

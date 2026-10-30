@@ -4,8 +4,8 @@
     <string name="heart_rate_entry_description">查看实时心率与历史记录</string>
     <string name="heart_rate_device_title">AirPods Pro 3 心率</string>
     <string name="heart_rate_value">%1$d 次/分</string>
-    <string name="heart_rate_value_unavailable">— 次/分</string>
-    <string name="heart_rate_stopped">点击开始采集，佩戴好耳机后等待读数。</string>
+    <string name="heart_rate_value_unavailable">正在测量</string>
+    <string name="heart_rate_stopped">正在准备心率监测。</string>
     <string name="heart_rate_waiting">采集请求已发送，等待耳机返回有效读数。</string>
     <string name="heart_rate_active">正在接收耳机读数。</string>
     <string name="heart_rate_stale">超过 10 秒没有新读数，请检查佩戴和连接。</string>
@@ -22,4 +22,7 @@
     <string name="heart_rate_history_title">历史记录</string>
     <string name="heart_rate_history_empty">暂无记录</string>
     <string name="heart_rate_history_count">共 %1$d 条记录</string>
+    <string name="heart_rate_chart_title">心率曲线</string>
+    <string name="heart_rate_chart_average">平均 %1$d 次/分</string>
+    <string name="heart_rate_chart_maximum">最高 %1$d 次/分</string>
 </resources>

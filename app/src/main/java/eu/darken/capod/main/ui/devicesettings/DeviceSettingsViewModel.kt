@@ -598,6 +598,11 @@ class DeviceSettingsViewModel @Inject constructor(
     }
 
 
+    fun navToHeartRate() = launch {
+        val profileId = targetProfileId.value ?: return@launch
+        navTo(Nav.Main.HeartRate(profileId = profileId))
+    }
+
     fun navToPressControls() = launch {
         log(TAG, INFO) { "navToPressControls()" }
         val profileId = targetProfileId.value ?: return@launch

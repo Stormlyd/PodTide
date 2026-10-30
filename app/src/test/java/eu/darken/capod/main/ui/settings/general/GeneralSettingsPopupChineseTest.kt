@@ -18,7 +18,7 @@ class GeneralSettingsPopupChineseTest : BaseComposeRobolectricTest() {
                 onUseIndirectScanResultCallbackChanged = {}, onHideUnmatchedDevicesChanged = {},
             )
         } }
-        for (text in listOf("弹窗样式", "两种样式均使用各设备设置中的开盒和连接触发条件。", "底部弹窗", "顶部状态弹窗")) {
+        for (text in listOf("弹窗样式", "按耳机设置中的开盒和连接条件显示弹窗。", "底部弹窗")) {
             composeRule.onNode(hasScrollAction()).performScrollToNode(hasText(text))
             composeRule.onNodeWithText(text).assertIsDisplayed()
         }

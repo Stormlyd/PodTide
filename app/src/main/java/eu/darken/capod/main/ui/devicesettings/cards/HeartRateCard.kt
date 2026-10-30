@@ -29,21 +29,20 @@ import javax.inject.Inject
 class HeartRateViewModel @Inject constructor(val controller: HeartRateController) : ViewModel()
 
 @Composable
-fun HeartRateCard(state: HeartRateUiState, onStart: () -> Unit, onStop: () -> Unit, onClear: () -> Unit, showHistory: Boolean = true) {
+fun HeartRateCard(state: HeartRateUiState, onStart: () -> Unit, onStop: () -> Unit, onClear: () -> Unit, showHistory: Boolean = true, showControls: Boolean = true) {
     val locale = LocalConfiguration.current.locales[0]
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.heart_rate_device_title), style = MaterialTheme.typography.titleMedium)
             Text(state.reading.bpm?.let { stringResource(R.string.heart_rate_value, it) } ?: stringResource(R.string.heart_rate_value_unavailable), style = MaterialTheme.typography.headlineMedium)
-            Text(stringResource(state.messageRes ?: when (state.reading.status) {
-                HeartRateStatus.STOPPED -> R.string.heart_rate_stopped
-                HeartRateStatus.WAITING -> R.string.heart_rate_waiting
-                HeartRateStatus.ACTIVE -> R.string.heart_rate_active
-                HeartRateStatus.STALE -> R.string.heart_rate_stale
-            }))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = if (state.requested) onStop else onStart) { Text(stringResource(if (state.requested) R.string.heart_rate_stop else R.string.heart_rate_start)) }
-                if (showHistory && state.history.isNotEmpty()) TextButton(onClick = onClear) { Text(stringResource(R.string.heart_rate_clear)) }
+            val problem = state.messageRes?.takeUnless { it == R.string.heart_rate_waiting_connection }
+                ?: if (state.reading.status == HeartRateStatus.STALE) R.string.heart_rate_stale else null
+            if (problem != null) Text(stringResource(problem))
+            if (showControls) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = if (state.requested) onStop else onStart) { Text(stringResource(if (state.requested) R.string.heart_rate_stop else R.string.heart_rate_start)) }
+                    if (showHistory && state.history.isNotEmpty()) TextButton(onClick = onClear) { Text(stringResource(R.string.heart_rate_clear)) }
+                }
             }
             if (showHistory && state.history.isNotEmpty()) {
                 Text(stringResource(R.string.heart_rate_history_description), style = MaterialTheme.typography.labelMedium)

@@ -2,6 +2,8 @@ package eu.darken.capod.monitor.ui
 
 import android.app.Application
 import android.app.Notification
+import android.app.NotificationManager
+import eu.darken.capod.R
 import eu.darken.capod.monitor.core.PodDevice
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
@@ -40,6 +42,13 @@ class MonitorNotificationsTest {
         notification.extras.getString(Notification.EXTRA_TEXT).isNullOrBlank() shouldBe false
         notification.smallIcon shouldNotBe null
         notification.contentIntent shouldNotBe null
+    }
+
+    @Test fun `service notification reflects connection state`() {
+        val context = RuntimeEnvironment.getApplication()
+        val notifications = MonitorNotifications(context, context.getSystemService(NotificationManager::class.java), MonitorNotificationViewFactory(context))
+        notifications.getGenericNotification(false).extras.getString(Notification.EXTRA_TEXT) shouldBe context.getString(R.string.monitor_notification_running)
+        notifications.getGenericNotification(true).extras.getString(Notification.EXTRA_TEXT) shouldBe context.getString(R.string.monitor_notification_connected)
     }
 
     @Test

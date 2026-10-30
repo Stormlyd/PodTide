@@ -4,8 +4,8 @@
     <string name="heart_rate_entry_description">View live heart rate and local history</string>
     <string name="heart_rate_device_title">AirPods Pro 3 heart rate</string>
     <string name="heart_rate_value">%1$d bpm</string>
-    <string name="heart_rate_value_unavailable">— bpm</string>
-    <string name="heart_rate_stopped">Start a reading after putting on your earbuds.</string>
+    <string name="heart_rate_value_unavailable">Measuring</string>
+    <string name="heart_rate_stopped">Preparing heart-rate monitoring.</string>
     <string name="heart_rate_waiting">Request sent. Waiting for a valid reading.</string>
     <string name="heart_rate_active">Receiving readings from your earbuds.</string>
     <string name="heart_rate_stale">No new reading for 10 seconds. Check fit and connection.</string>
@@ -22,4 +22,7 @@
     <string name="heart_rate_history_title">History</string>
     <string name="heart_rate_history_empty">No readings yet</string>
     <string name="heart_rate_history_count">Records: %1$d</string>
+    <string name="heart_rate_chart_title">Heart-rate history</string>
+    <string name="heart_rate_chart_average">Average %1$d bpm</string>
+    <string name="heart_rate_chart_maximum">Maximum %1$d bpm</string>
 </resources>

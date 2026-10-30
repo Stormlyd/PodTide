@@ -4,4 +4,5 @@
     <string name="popup_style_bottom">底部弹窗</string>
     <string name="popup_style_top">顶部状态弹窗</string>
     <string name="popup_styles_summary">两种样式均使用各设备设置中的开盒和连接触发条件。</string>
+    <string name="popup_styles_bottom_summary">按耳机设置中的开盒和连接条件显示弹窗。</string>
 </resources>

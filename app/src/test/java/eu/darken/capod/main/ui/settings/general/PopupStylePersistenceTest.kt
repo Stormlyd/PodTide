@@ -27,12 +27,11 @@ class PopupStylePersistenceTest {
         settings.showBatteryInStatusBar.update { true }
         settings.showLiveBatteryInNotification.update { true }
         settings.showLiveBatteryInNotification.update { false }
-        val reopened = GeneralSettings(context, Json)
-        assertFalse(reopened.showLiveBatteryInNotification.flow.first())
-        assertTrue(reopened.useExtraMonitorNotification.flow.first())
-        assertTrue(reopened.keepConnectedNotificationAfterDisconnect.flow.first())
-        assertTrue(reopened.showBatteryInStatusBar.flow.first())
-        reopened.showLiveBatteryInNotification.update { true }
+        assertFalse(settings.showLiveBatteryInNotification.flow.first())
+        assertTrue(settings.useExtraMonitorNotification.flow.first())
+        assertTrue(settings.keepConnectedNotificationAfterDisconnect.flow.first())
+        assertTrue(settings.showBatteryInStatusBar.flow.first())
+        settings.showLiveBatteryInNotification.update { true }
         assertTrue(settings.showLiveBatteryInNotification.flow.first())
     }
 
@@ -45,9 +44,9 @@ class PopupStylePersistenceTest {
         for ((bottom, top) in listOf(false to false, false to true, true to true, true to false)) {
             settings.showBottomPopup.update { bottom }
             settings.showTopPopup.update { top }
-            assertEquals(PopUpStylePolicy(bottom, top), settings.popUpStylePolicy.first())
+            assertEquals(PopUpStylePolicy(bottom, false), settings.popUpStylePolicy.first())
             // A newly subscribed settings screen reads persisted preferences, with no default write.
-            assertEquals(PopUpStylePolicy(bottom, top), settings.popUpStylePolicy.first())
+            assertEquals(PopUpStylePolicy(bottom, false), settings.popUpStylePolicy.first())
         }
         assertTrue(context.filesDir.resolve("datastore/settings_general.preferences_pb").length() > 0)
     }

@@ -12,8 +12,13 @@ import org.junit.Test
 import testhelpers.compose.BaseComposeRobolectricTest
 
 class NavigationRestoreTest : BaseComposeRobolectricTest() {
-    @Test fun `restored heart page returns to existing device settings with normal Back`() {
-        assertReturnsToSettings(Nav.Main.HeartRate("owned"))
+    @Test fun `restored heart page remains accessible with normal Back`() {
+        val restored = restoreLegacyStack(Nav.Main.Overview, Nav.Main.DeviceSettings("owned"), Nav.Main.HeartRate("owned"))
+        composeRule.runOnIdle {
+            assertEquals(Nav.Main.HeartRate("owned"), restored.stack().last())
+            assertTrue(restored.controller.up())
+            assertEquals(Nav.Main.DeviceSettings("owned"), restored.stack().last())
+        }
     }
 
     @Test fun `restored head preview returns to existing device settings with normal Back`() {
@@ -22,7 +27,7 @@ class NavigationRestoreTest : BaseComposeRobolectricTest() {
 
     @Test fun `retired entries below the current page cannot reappear when navigating Back`() {
         val restored = restoreLegacyStack(
-            Nav.Main.Overview, Nav.Main.HeartRate("owned"), Nav.Settings.General,
+            Nav.Main.Overview, Nav.Settings.General,
             Nav.Main.HeadPreview("owned"), Nav.Settings.Support,
         )
         composeRule.runOnIdle {
@@ -36,7 +41,7 @@ class NavigationRestoreTest : BaseComposeRobolectricTest() {
     }
 
     @Test fun `an entirely retired restored stack falls back to Overview without a navigation loop`() {
-        val restored = restoreLegacyStack(Nav.Main.HeartRate("owned"), Nav.Main.HeadPreview("owned"))
+        val restored = restoreLegacyStack(Nav.Main.HeadPreview("owned"), Nav.Settings.ContactSupport)
         composeRule.runOnIdle {
             assertEquals(listOf(Nav.Main.Overview), restored.stack().toList())
             repeat(3) { restored.controller.setup(restored.stack()) }

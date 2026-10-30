@@ -620,5 +620,6 @@
     <string name="general_progress_loading">Loading</string>
     <string name="settings_monitor_live_battery_label">Show live earbud battery in notifications</string>
     <string name="settings_monitor_live_battery_description">Turning this off reduces notification updates. Monitoring and auto-connect remain active.</string>
-    <string name="monitor_notification_running">Background monitoring is running</string>
+    <string name="monitor_notification_running">Ready for automatic connection</string>
+    <string name="monitor_notification_connected">Earbuds connected</string>
 </resources>

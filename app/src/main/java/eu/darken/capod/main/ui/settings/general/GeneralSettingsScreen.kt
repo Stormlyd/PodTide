@@ -221,7 +221,7 @@ fun GeneralSettingsScreen(
             item {
                 SettingsCategoryHeader(
                     text = stringResource(R.string.popup_styles_title),
-                    subtitle = stringResource(R.string.popup_styles_summary),
+                    subtitle = stringResource(R.string.popup_styles_bottom_summary),
                 )
             }
             item {
@@ -231,17 +231,6 @@ fun GeneralSettingsScreen(
                     onClick = { onShowBottomPopupChanged(!state.showBottomPopup) },
                     trailingContent = {
                         Switch(checked = state.showBottomPopup, onCheckedChange = onShowBottomPopupChanged,
-                            modifier = Modifier.padding(start = 16.dp))
-                    },
-                )
-            }
-            item {
-                SettingsBaseItem(
-                    title = stringResource(R.string.popup_style_top),
-                    icon = Icons.TwoTone.Notifications,
-                    onClick = { onShowTopPopupChanged(!state.showTopPopup) },
-                    trailingContent = {
-                        Switch(checked = state.showTopPopup, onCheckedChange = onShowTopPopupChanged,
                             modifier = Modifier.padding(start = 16.dp))
                     },
                 )

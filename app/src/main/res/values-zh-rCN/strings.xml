@@ -544,5 +544,6 @@
     <string name="general_progress_loading">正在加载</string>
     <string name="settings_monitor_live_battery_label">通知中实时显示耳机电量</string>
     <string name="settings_monitor_live_battery_description">关闭后减少通知更新，后台监测和自动连接仍会运行。</string>
-    <string name="monitor_notification_running">后台监测运行中</string>
+    <string name="monitor_notification_running">准备好自动连接</string>
+    <string name="monitor_notification_connected">耳机已连接</string>
 </resources>

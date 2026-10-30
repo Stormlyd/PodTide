@@ -21,7 +21,7 @@ class NavigationController @Inject constructor() {
         // Prune those keys before NavDisplay can compose them, including pages deeper in Back
         // history. Retain all other destinations in order and keep a valid root if none remain.
         val removedSensors = backStack.removeAll {
-            it is Nav.Main.HeartRate || it is Nav.Main.HeadPreview || it is Nav.Settings.ContactSupport ||
+            it is Nav.Main.HeadPreview || it is Nav.Settings.ContactSupport ||
                 (BuildConfigWrap.FLAVOR == BuildConfigWrap.Flavor.FOSS && it is Nav.Main.Upgrade)
         }
         if (removedSensors && backStack.isEmpty()) backStack.add(Nav.Main.Overview)

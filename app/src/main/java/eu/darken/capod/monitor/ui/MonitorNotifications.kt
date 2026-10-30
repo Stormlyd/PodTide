@@ -196,9 +196,9 @@ class MonitorNotifications @Inject constructor(
         showBatteryInStatusBar = showBatteryInStatusBar,
     ).build()
 
-    fun getGenericNotification(): Notification = baseBuilder(NOTIFICATION_CHANNEL_ID).apply {
+    fun getGenericNotification(isConnected: Boolean = false): Notification = baseBuilder(NOTIFICATION_CHANNEL_ID).apply {
         setContentTitle(context.getString(R.string.app_name))
-        setContentText(context.getString(R.string.monitor_notification_running))
+        setContentText(context.getString(if (isConnected) R.string.monitor_notification_connected else R.string.monitor_notification_running))
     }.build()
 
     fun getStartupNotification(): Notification = getGenericNotification()

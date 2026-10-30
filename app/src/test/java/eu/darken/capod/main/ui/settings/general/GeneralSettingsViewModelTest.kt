@@ -18,6 +18,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -108,17 +109,12 @@ class GeneralSettingsViewModelTest : BaseTest() {
         upgradeRepo = upgradeRepo,
     ).also { vm = it }
 
-    @Test fun `popup styles remain independently writable without entitlement`() = runVmTest {
+    @Test fun `retired top popup stays disabled even if previously selected`() = runVmTest {
         val vm = createViewModel()
-        vm.state.first().showBottomPopup shouldBe true
-        vm.state.first().showTopPopup shouldBe false
         vm.setShowTopPopup(true)
-        vm.state.first { it.showTopPopup }.showBottomPopup shouldBe true
-        vm.setShowBottomPopup(false)
-        vm.state.first { !it.showBottomPopup }.showTopPopup shouldBe true
+        runCurrent()
+        vm.state.first().showTopPopup shouldBe false
     }
-
-    // --- Presentation ---
 
     @Test
     fun `a settled free user sees the hard-locked upgrade presentation`() = runVmTest {

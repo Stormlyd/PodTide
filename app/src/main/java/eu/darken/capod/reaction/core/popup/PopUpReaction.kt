@@ -62,6 +62,9 @@ class PopUpReaction @Inject constructor(
 
             if (!isEligible) return@mapNotNull null
             if (current.caseLidState == null) return@mapNotNull null
+            // An already-connected device gets its popup from the connection event. Ignore
+            // changing/stale lid broadcasts until it disconnects to avoid surprise redisplays.
+            if (current.isSystemConnected && current.caseLidState == DualApplePods.LidState.OPEN) return@mapNotNull null
 
             log(TAG, VERBOSE) {
                 "previous=${previous?.caseLidState}, current=${current.caseLidState}"

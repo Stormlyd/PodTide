@@ -53,6 +53,7 @@ import eu.darken.capod.main.ui.devicesettings.cards.ControlsCard
 import eu.darken.capod.main.ui.devicesettings.cards.CustomEqCard
 import eu.darken.capod.main.ui.devicesettings.cards.DeviceInfoBottomSheet
 import eu.darken.capod.main.ui.devicesettings.cards.DeviceInfoCard
+import eu.darken.capod.main.ui.heartrate.HeartRateMenuItem
 import eu.darken.capod.main.ui.devicesettings.cards.NoiseControlCard
 import eu.darken.capod.main.ui.devicesettings.cards.NotConnectedCard
 import eu.darken.capod.main.ui.devicesettings.cards.ReactionsCard
@@ -189,6 +190,7 @@ fun DeviceSettingsScreenHost(
         onDynamicEndOfChargeChange = { vm.setDynamicEndOfCharge(it) },
         onDeviceNameChange = { vm.setDeviceName(it) },
         onPressControlsClick = { vm.navToPressControls() },
+        onHeartRateClick = { vm.navToHeartRate() },
         onEditProfile = { vm.navToEditProfile() },
         onForceConnect = { vm.forceConnect() },
         onUpgrade = { vm.launchUpgrade() },
@@ -457,8 +459,11 @@ fun DeviceSettingsScreen(
                 }
             }
 
-            // Sensor entry points are deferred for the public release. Their screens and saved
-            // settings remain available in source for later restoration.
+            // Heart rate is available for Pro 3 even while the selected device is offline.
+            if ((device?.model ?: state.profileModel) == eu.darken.capod.pods.core.apple.PodModel.AIRPODS_PRO3) {
+                item("heart_rate_section") { HeartRateMenuItem(onClick = onHeartRateClick) }
+            }
+            // Head gesture and motion preview remain disabled until they can be verified.
 
             // ── Reactions (gated on classic connection — needs phone to be the audio target) ──
             if (device != null && device.hasSelectedPairedDevice &&

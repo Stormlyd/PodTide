@@ -74,6 +74,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -296,12 +297,15 @@ class MonitorService : Service() {
         val monitorJob = generalSettings.showLiveBatteryInNotification.flow.distinctUntilChanged()
             .flatMapLatest { liveBattery ->
                 if (!liveBattery) {
-                    flow {
-                        latestNotificationSettings = NotificationSettings(false, false)
-                        postPrimaryNotification(notifications.getGenericNotification())
-                        notificationManager.cancel(MonitorNotifications.NOTIFICATION_ID_CONNECTED)
-                        emit(Unit)
-                    }
+                    deviceMonitor.primaryDeviceByTier
+                        .map { it?.isSystemConnected == true }
+                        .distinctUntilChanged()
+                        .onEach { connected ->
+                            latestNotificationSettings = NotificationSettings(false, false)
+                            postPrimaryNotification(notifications.getGenericNotification(isConnected = connected))
+                            notificationManager.cancel(MonitorNotifications.NOTIFICATION_ID_CONNECTED)
+                        }
+                        .map { Unit }
                 } else {
                     combine(deviceFlow, notificationSettingsFlow, batteryEstimator.estimates) { currentDevice, settings, estimates ->
                         NotificationInput(currentDevice, settings, currentDevice?.let { estimates.estimateFor(it) })
