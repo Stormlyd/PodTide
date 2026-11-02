@@ -1,4 +1,6 @@
 <resources>
+    <string name="settings_monitoring_enabled_label">Background monitoring</string>
+    <string name="settings_monitoring_enabled_description">Detect your earbuds in the background, show popups and reconnect them. Turning this off is an explicit stop: a phone restart, Bluetooth events and scan events will not resume monitoring until you turn it on again. Leaving this screen or the app does not stop monitoring.</string>
     <string name="settings_background_help_title">Background running help</string>
     <string name="settings_background_help_summary">Check Android battery and background restrictions</string>
     <string name="settings_background_help_body">If background monitoring stops, check the system battery and background activity restrictions for PodTide. Menu names and paths vary by phone manufacturer and Android version. The ColorOS path below is one example. PodTide cannot read this manufacturer-specific setting. Exempting the app from Android battery optimization does not confirm that background activity is fully allowed.</string>

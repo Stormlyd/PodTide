@@ -28,6 +28,17 @@ data class ReactionConfig(
     /** Case battery percentage at or below which the low case reminder fires (clamped 10..50 on use). */
     val caseLowThreshold: Int = DEFAULT_CASE_LOW_THRESHOLD,
 ) {
+    /**
+     * Single user-facing "earbud status popup" switch ("耳机状态弹窗").
+     *
+     * Both legacy flags stay stored so profiles survive without a JSON schema migration: combining
+     * them is an OR, which is exactly the migration table for old installs (case-open only,
+     * connection only, both, neither), and every writer now sets both flags together. Deliberately
+     * excluded from `equals`/`copy`, which stay based on the two stored flags.
+     */
+    val showStatusPopUp: Boolean
+        get() = showPopUpOnCaseOpen || showPopUpOnConnection
+
     companion object {
         const val DEFAULT_CHARGED_THRESHOLD = 100
         const val MIN_CHARGED_THRESHOLD = 50

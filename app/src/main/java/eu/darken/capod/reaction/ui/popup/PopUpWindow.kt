@@ -42,6 +42,16 @@ class PopUpWindow @Inject constructor(
         if (policy.showTopPopup) safely(top) { show(device) }
     }
 
+    /**
+     * Updates overlays that are already visible and does nothing otherwise. Used when a new event
+     * belongs to a popup round that is already on screen, so the content refreshes without a
+     * second popup appearing.
+     */
+    fun update(device: PodDevice): Unit = onMain {
+        if (isMainActivityVisible) return@onMain
+        each { it.updateIfVisible(device) }
+    }
+
     fun close(): Unit = onMain { each { it.close() } }
 
     fun dismissImmediately(): Unit = onMain { each { it.dismissImmediately() } }

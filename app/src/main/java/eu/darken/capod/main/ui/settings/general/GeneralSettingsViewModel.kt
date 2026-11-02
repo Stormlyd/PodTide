@@ -16,6 +16,7 @@ import eu.darken.capod.common.upgrade.isProForUi
 import eu.darken.capod.main.core.GeneralSettings
 import eu.darken.capod.main.core.themeState
 import eu.darken.capod.main.core.popUpStylePolicy
+import eu.darken.capod.monitor.core.worker.MonitorControl
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -26,6 +27,7 @@ class GeneralSettingsViewModel @Inject constructor(
     dispatcherProvider: DispatcherProvider,
     private val generalSettings: GeneralSettings,
     private val upgradeRepo: UpgradeRepo,
+    private val monitorControl: MonitorControl,
 ) : ViewModel4(dispatcherProvider) {
 
     data class State(
@@ -47,6 +49,7 @@ class GeneralSettingsViewModel @Inject constructor(
         val showBottomPopup: Boolean = true,
         val showTopPopup: Boolean = false,
         val showLiveBatteryInNotification: Boolean = false,
+        val monitoringEnabled: Boolean = true,
     )
 
     // Hard-locked = settled, error-free and no entitlement. Anything else (unsettled seed, error)
@@ -61,9 +64,10 @@ class GeneralSettingsViewModel @Inject constructor(
             generalSettings.useExtraMonitorNotification.flow,
             generalSettings.keepConnectedNotificationAfterDisconnect.flow,
             generalSettings.showBatteryInStatusBar.flow,
-        ) { liveBattery, showNotif, keepNotif, batteryIcon ->
+            generalSettings.monitoringEnabled.flow,
+        ) { liveBattery, showNotif, keepNotif, batteryIcon, monitoring ->
             @Suppress("USELESS_CAST")
-            arrayOf<Any>(liveBattery as Any, showNotif as Any, keepNotif as Any, batteryIcon as Any)
+            arrayOf<Any>(liveBattery as Any, showNotif as Any, keepNotif as Any, batteryIcon as Any, monitoring as Any)
         },
         combine(
             generalSettings.isOffloadedFilteringDisabled.flow,
@@ -83,6 +87,7 @@ class GeneralSettingsViewModel @Inject constructor(
             showConnectedNotification = general[1] as Boolean,
             keepNotificationAfterDisconnect = general[2] as Boolean,
             showBatteryInStatusBar = general[3] as Boolean,
+            monitoringEnabled = general[4] as Boolean,
             isOffloadedFilteringDisabled = compat[0] as Boolean,
             isOffloadedBatchingDisabled = compat[1] as Boolean,
             useIndirectScanResultCallback = compat[2] as Boolean,
@@ -94,6 +99,15 @@ class GeneralSettingsViewModel @Inject constructor(
     }.asLiveState()
 
     fun setShowBottomPopup(enabled: Boolean) = launch { generalSettings.showBottomPopup.update { enabled } }
+
+    /**
+     * The only place monitoring is switched off on purpose. Leaving this screen, backgrounding the
+     * app or returning home does not call it, so those actions never stop monitoring.
+     */
+    fun setMonitoringEnabled(enabled: Boolean) = launch {
+        log(TAG, INFO) { "setMonitoringEnabled($enabled)" }
+        monitorControl.setMonitoringEnabled(enabled)
+    }
 
     fun setShowTopPopup(enabled: Boolean) = launch { generalSettings.showTopPopup.update { enabled } }
 

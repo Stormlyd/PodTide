@@ -39,6 +39,13 @@ class GeneralSettings @Inject constructor(
 
     val showLiveBatteryInNotification = dataStore.createValue("core.monitor.notification.battery.live", false)
 
+    /**
+     * The user's explicit intent for background monitoring. Distinct from a process kill: while
+     * this is false, no boot broadcast, Bluetooth event, scan callback or sticky service restart
+     * may resume monitoring on its own.
+     */
+    val monitoringEnabled = dataStore.createValue("core.monitor.enabled", true)
+
     val useExtraMonitorNotification = dataStore.createValue("core.monitor.notification.connected", false)
 
     val keepConnectedNotificationAfterDisconnect =

@@ -12,19 +12,35 @@ import eu.darken.capod.common.debug.logging.logTag
 import eu.darken.capod.common.hasApiLevel
 import eu.darken.capod.common.permissions.Permission
 import eu.darken.capod.common.startServiceCompat
+import eu.darken.capod.monitor.core.ble.MonitorWakeScan
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class MonitorControl @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val monitoringState: MonitoringState,
+    private val wakeScan: MonitorWakeScan,
 ) {
 
+    /**
+     * Requests a monitor session. Every entry point — UI, boot broadcast, Bluetooth events, the
+     * wake scan and sticky service restarts — funnels through here so the persisted user intent is
+     * checked in exactly one place. [MonitorService] re-checks it before rebuilding a session.
+     */
     @SuppressLint("NewApi")
     fun startMonitor(
         forceStart: Boolean = false,
     ) {
         log(TAG, VERBOSE) { "startMonitor(forceStart=$forceStart)" }
+
+        // "The system ended the process" and "the user switched monitoring off" are different
+        // states. Only the second one blocks a start request, and it blocks every entry point,
+        // including delayed callbacks that arrive after the user's action.
+        if (!monitoringState.enabled.value) {
+            log(TAG) { "Monitoring is disabled by the user, ignoring start request." }
+            return
+        }
 
         val hasBluetoothPermission =
             Permission.BLUETOOTH.isGranted(context) || Permission.BLUETOOTH_SCAN.isGranted(context)
@@ -51,6 +67,26 @@ class MonitorControl @Inject constructor(
         log(TAG, VERBOSE) { "stopMonitor()" }
         context.stopService(MonitorService.intent(context))
         log(TAG) { "Monitor stop request sent." }
+    }
+
+    /**
+     * Applies the user's explicit monitoring choice.
+     *
+     * The intent is persisted BEFORE anything is torn down, so a boot broadcast, Bluetooth event or
+     * delayed scan callback that races the shutdown already sees the stop intent and cannot resume
+     * monitoring. Re-enabling restores the wake scan registration and requests a session. Leaving a
+     * screen, backgrounding the app or returning home never calls this.
+     */
+    suspend fun setMonitoringEnabled(enabled: Boolean) {
+        log(TAG) { "setMonitoringEnabled($enabled)" }
+        monitoringState.setEnabled(enabled)
+        if (enabled) {
+            wakeScan.ensureRegistered()
+            startMonitor(forceStart = false)
+        } else {
+            wakeScan.unregister()
+            stopMonitor()
+        }
     }
 
     companion object {

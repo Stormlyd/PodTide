@@ -5,10 +5,16 @@ import android.bluetooth.le.ScanResult
 import eu.darken.capod.common.bluetooth.BleScanResult
 import eu.darken.capod.monitor.core.PodDevice
 import eu.darken.capod.pods.core.apple.ble.devices.DualApplePods
+import eu.darken.capod.profiles.core.ReactionConfig
+import eu.darken.capod.reaction.core.autoconnect.AutoConnectCondition
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -21,13 +27,25 @@ class PopUpReactionLogicTest : BaseTest() {
 
     private lateinit var popUpReaction: PopUpReaction
 
+    /** No persisted round by default: these tests exercise a cold start. */
+    private fun emptyStore(): PopUpStateStore = mockk(relaxed = true) {
+        coEvery { loadRestorableRound() } returns null
+    }
+
+    private fun createReaction(
+        timeSource: TestTimeSource,
+        store: PopUpStateStore = emptyStore(),
+    ) = PopUpReaction(
+        deviceMonitor = mockk(relaxed = true),
+        bluetoothManager = mockk(relaxed = true),
+        timeSource = timeSource,
+        popUpStateStore = store,
+        scope = CoroutineScope(Dispatchers.Unconfined),
+    )
+
     @BeforeEach
     fun setup() {
-        popUpReaction = PopUpReaction(
-            deviceMonitor = mockk(relaxed = true),
-            bluetoothManager = mockk(relaxed = true),
-            timeSource = TestTimeSource(),
-        )
+        popUpReaction = createReaction(TestTimeSource())
     }
 
     @Nested
@@ -200,11 +218,7 @@ class PopUpReactionLogicTest : BaseTest() {
     inner class CooldownGuardTests {
 
         private val timeSource = TestTimeSource(wallNow = Instant.parse("2026-01-01T00:00:00Z"), elapsedRealtimeNanosValue = 100_000_000_000L)
-        private val reaction = PopUpReaction(
-            deviceMonitor = mockk(relaxed = true),
-            bluetoothManager = mockk(relaxed = true),
-            timeSource = timeSource,
-        )
+        private val reaction = createReaction(timeSource)
 
         @Test
         fun `UNKNOWN hide does not refresh the show cooldown (issue 598)`() {
@@ -238,11 +252,7 @@ class PopUpReactionLogicTest : BaseTest() {
     inner class StaleCloseTests {
 
         private val timeSource = TestTimeSource(wallNow = Instant.parse("2026-01-01T00:00:00Z"), elapsedRealtimeNanosValue = 100_000_000_000L)
-        private val reaction = PopUpReaction(
-            deviceMonitor = mockk(relaxed = true),
-            bluetoothManager = mockk(relaxed = true),
-            timeSource = timeSource,
-        )
+        private val reaction = createReaction(timeSource)
 
         @Test
         fun `fresh OPEN broadcast keeps the popup`() {
@@ -315,6 +325,86 @@ class PopUpReactionLogicTest : BaseTest() {
         }
     }
 
+    @Nested
+    inner class StatusPopUpSwitchTests {
+
+        @Test
+        fun `the merged switch follows the OR migration table`() {
+            ReactionConfig(showPopUpOnCaseOpen = false, showPopUpOnConnection = false).showStatusPopUp shouldBe false
+            ReactionConfig(showPopUpOnCaseOpen = true, showPopUpOnConnection = false).showStatusPopUp shouldBe true
+            ReactionConfig(showPopUpOnCaseOpen = false, showPopUpOnConnection = true).showStatusPopUp shouldBe true
+            ReactionConfig(showPopUpOnCaseOpen = true, showPopUpOnConnection = true).showStatusPopUp shouldBe true
+        }
+
+        @Test
+        fun `a legacy profile keeps its popup after the merge`() {
+            // Old installs stored the two flags separately; neither may be lost by the merge.
+            ReactionConfig(showPopUpOnConnection = true).showStatusPopUp shouldBe true
+            ReactionConfig(showPopUpOnCaseOpen = true).showStatusPopUp shouldBe true
+        }
+
+        @Test
+        fun `merging the popup switches leaves auto-connect untouched`() {
+            val config = ReactionConfig(showPopUpOnCaseOpen = true, showPopUpOnConnection = false)
+            config.showStatusPopUp shouldBe true
+            config.autoConnect shouldBe false
+            config.autoConnectCondition shouldBe AutoConnectCondition.WHEN_SEEN
+        }
+    }
+
+    @Nested
+    inner class PopUpRoundTests {
+
+        private val timeSource = TestTimeSource(
+            wallNow = Instant.parse("2026-01-01T00:00:00Z"),
+            elapsedRealtimeMs = 100_000L,
+            elapsedRealtimeNanosValue = 100_000_000_000L,
+        )
+        private val store = mockk<PopUpStateStore>(relaxed = true) {
+            coEvery { loadRestorableRound() } returns null
+        }
+        private val reaction = createReaction(timeSource, store)
+
+        @Test
+        fun `a case popup opens a round and persists it`() {
+            reaction.throttleCasePopUps(device(DualApplePods.LidState.OPEN))
+                .shouldBeInstanceOf<PopUpReaction.Event.PopupShow>()
+
+            reaction.isSameRound("profile-1") shouldBe true
+            coVerify { store.saveRound("profile-1", 100_000L) }
+        }
+
+        @Test
+        fun `a round stays joinable inside the window and expires after it`() {
+            reaction.throttleCasePopUps(device(DualApplePods.LidState.OPEN))
+            timeSource.advanceBy(PopUpReaction.ROUND_WINDOW)
+            reaction.isSameRound("profile-1") shouldBe true
+
+            timeSource.advanceBy(Duration.ofSeconds(1))
+            reaction.isSameRound("profile-1") shouldBe false
+        }
+
+        @Test
+        fun `closing the lid ends the round and clears the persisted record`() {
+            reaction.throttleCasePopUps(device(DualApplePods.LidState.OPEN))
+            timeSource.advanceBy(Duration.ofSeconds(11))
+            reaction.throttleCasePopUps(device(DualApplePods.LidState.CLOSED))
+                .shouldBeInstanceOf<PopUpReaction.Event.PopupHide>()
+
+            reaction.isSameRound("profile-1") shouldBe false
+            coVerify { store.clearRound("profile-1") }
+        }
+
+        @Test
+        fun `an unknown or missing profile never joins a round`() {
+            reaction.isSameRound("other-profile") shouldBe false
+            reaction.isSameRound(null) shouldBe false
+        }
+
+        private fun device(lid: DualApplePods.LidState?) =
+            mockDevice(lid = lid, clock = timeSource, lastSeen = timeSource.now())
+    }
+
     private fun mockDevice(
         lid: DualApplePods.LidState?,
         eligible: Boolean = true,
@@ -333,9 +423,11 @@ class PopUpReactionLogicTest : BaseTest() {
         }
         val scan = BleScanResult.fromScanResult(native, clock)
         every { caseLidState } returns lid
-        every { reactions } returns mockk(relaxed = true) {
-            every { showPopUpOnCaseOpen } returns eligible
-        }
+        // A real config, so the merged `showStatusPopUp` switch is exercised instead of stubbed.
+        every { reactions } returns ReactionConfig(
+            showPopUpOnCaseOpen = eligible,
+            showPopUpOnConnection = eligible,
+        )
         // isCaseOpenBroadcastFresh reads BLE freshness via device.ble?.seenLastAt.
         every { ble } returns mockk(relaxed = true) {
             every { seenLastAt } returns lastSeen

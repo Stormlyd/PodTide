@@ -82,6 +82,14 @@
         </receiver>
 
         <receiver
+            android:name=".monitor.core.receiver.MonitorWakeScanReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="eu.darken.capod.monitor.WAKE_SCAN_RESULT" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".monitor.core.receiver.BootCompletedReceiver"
             android:exported="true">
             <intent-filter>

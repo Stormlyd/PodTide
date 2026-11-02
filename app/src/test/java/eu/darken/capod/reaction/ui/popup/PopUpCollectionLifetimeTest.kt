@@ -22,6 +22,7 @@ import eu.darken.capod.monitor.core.worker.MonitorService
 import eu.darken.capod.reaction.core.popup.PopUpReaction
 import eu.darken.capod.reaction.core.headgesture.HeadGestureConfig
 import eu.darken.capod.reaction.core.headgesture.HeadGestureSettings
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
@@ -107,8 +108,14 @@ class PopUpCollectionLifetimeTest {
             every { monitor() } returns emptyFlow()
         }
         service.monitorModeResolver = mockk { every { effectiveMode } returns emptyFlow() }
+        service.monitoringState = mockk { coEvery { isEnabled() } returns true }
+        service.wakeScan = mockk(relaxed = true)
         service.profilesRepo = mockk { every { profiles } returns MutableStateFlow(emptyList()) }
-        service.bluetoothManager = mockk { every { connectedDevices } returns MutableStateFlow(emptyList()) }
+        // adapter == null keeps the "Bluetooth disabled" guard inert while the session runs.
+        service.bluetoothManager = mockk {
+            every { connectedDevices } returns MutableStateFlow(emptyList())
+            every { adapter } returns null
+        }
         service.aapConnectionManager = mockk { every { allStates } returns MutableStateFlow(emptyMap()) }
         service.popUpReaction = mockk { every { monitor() } answers { nextEvents } }
         service.playPause = mockk { every { monitor() } returns emptyFlow() }

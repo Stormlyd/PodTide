@@ -35,7 +35,9 @@ class PermissionTool @Inject constructor(
     private val anyPopupEnabled: Flow<Boolean> = profilesRepo.profiles
         .map { profiles ->
             profiles.any { profile ->
-                profile.toReactionConfig().let { it.showPopUpOnCaseOpen || it.showPopUpOnConnection }
+                // The merged "earbud status popup" switch: either legacy flag keeps the overlay
+                // permission applicable, so migrated profiles do not silently lose their popups.
+                profile.toReactionConfig().showStatusPopUp
             }
         }
         .distinctUntilChanged()

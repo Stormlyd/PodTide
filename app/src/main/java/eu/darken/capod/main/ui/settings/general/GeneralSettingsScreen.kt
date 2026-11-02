@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.twotone.ArrowBack
+import androidx.compose.material.icons.automirrored.twotone.BluetoothSearching
 import androidx.compose.material.icons.twotone.AccountTree
 import androidx.compose.material.icons.twotone.BatteryStd
 import androidx.compose.material.icons.twotone.Contrast
@@ -81,6 +82,7 @@ fun GeneralSettingsScreenHost(vm: GeneralSettingsViewModel = hiltViewModel()) {
             onHideUnmatchedDevicesChanged = { enabled -> vm.setHideUnmatchedDevices(enabled) },
             onShowBottomPopupChanged = { vm.setShowBottomPopup(it) },
             onShowTopPopupChanged = { vm.setShowTopPopup(it) },
+            onMonitoringEnabledChanged = { vm.setMonitoringEnabled(it) },
             onThemeModeSelected = { mode -> vm.setThemeMode(mode) },
             onThemeStyleSelected = { style -> vm.setThemeStyle(style) },
             onThemeColorSelected = { color -> vm.setThemeColor(color) },
@@ -116,6 +118,7 @@ fun GeneralSettingsScreen(
     onOpenFindDevices: () -> Boolean = { false },
     onShowBottomPopupChanged: (Boolean) -> Unit = {},
     onShowTopPopupChanged: (Boolean) -> Unit = {},
+    onMonitoringEnabledChanged: (Boolean) -> Unit = {},
 ) {
     var showColorDialog by remember { mutableStateOf(false) }
     var helpDialog by remember { mutableStateOf<HelpDialog?>(null) }
@@ -237,6 +240,23 @@ fun GeneralSettingsScreen(
             }
             item {
                 SettingsCategoryHeader(text = stringResource(R.string.settings_category_other_label))
+            }
+            item {
+                // The only explicit monitoring on/off control. Distinct from leaving the screen or
+                // backgrounding the app, which never stop monitoring.
+                SettingsBaseItem(
+                    title = stringResource(R.string.settings_monitoring_enabled_label),
+                    subtitle = stringResource(R.string.settings_monitoring_enabled_description),
+                    icon = Icons.AutoMirrored.TwoTone.BluetoothSearching,
+                    onClick = { onMonitoringEnabledChanged(!state.monitoringEnabled) },
+                    trailingContent = {
+                        Switch(
+                            checked = state.monitoringEnabled,
+                            onCheckedChange = onMonitoringEnabledChanged,
+                            modifier = Modifier.padding(start = 16.dp),
+                        )
+                    },
+                )
             }
             item {
                 SettingsBaseItem(

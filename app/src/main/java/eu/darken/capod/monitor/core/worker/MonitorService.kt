@@ -37,6 +37,7 @@ import eu.darken.capod.monitor.core.battery.estimateFor
 import eu.darken.capod.monitor.core.MonitorModeResolver
 import eu.darken.capod.monitor.core.PodDevice
 import eu.darken.capod.monitor.core.ble.BlePodMonitor
+import eu.darken.capod.monitor.core.ble.MonitorWakeScan
 import eu.darken.capod.monitor.ui.MonitorNotifications
 import eu.darken.capod.pods.core.apple.PodModel
 import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
@@ -107,6 +108,8 @@ class MonitorService : Service() {
     @Inject lateinit var aapConnectionManager: AapConnectionManager
     @Inject lateinit var monitorModeResolver: MonitorModeResolver
     @Inject lateinit var batteryEstimator: BatteryEstimator
+    @Inject lateinit var monitoringState: MonitoringState
+    @Inject lateinit var wakeScan: MonitorWakeScan
 
     private val monitorScope = MonitorCoroutineScope()
     private var monitoringJob: Job? = null
@@ -237,6 +240,8 @@ class MonitorService : Service() {
 
         val generation = ++monitorGeneration
         retirePopupCollection()
+        // A live session owns scanning; keeping the wake registration active would duplicate it.
+        wakeScan.suppressForSession()
         monitorScope.coroutineContext.cancelChildren()
         // A new session starts here, so the previous session's last frame must not be re-promoted
         // into it. Safe at this point: the old collectors are cancelled and the new ones haven't run,
@@ -264,6 +269,22 @@ class MonitorService : Service() {
     }
 
     private suspend fun doMonitor(generation: Int) {
+        // A sticky restart, a null Intent from the system, or a late broadcast must never override
+        // an explicit user stop. The persisted intent is re-read here, authoritatively, before any
+        // monitoring component is rebuilt.
+        val monitoringEnabled = monitoringState.isEnabled()
+        val bluetoothEnabled = bluetoothManager.adapter?.isEnabled
+        if (!shouldRestoreSession(monitoringEnabled = monitoringEnabled, bluetoothEnabled = bluetoothEnabled)) {
+            if (!monitoringEnabled) {
+                log(TAG) { "Monitoring was disabled by the user, not restoring a session." }
+            } else {
+                // Not a state to fight with fast retries: the sticky restart and the registered wake
+                // scan give Bluetooth time to come back, so no tight restart loop is created here.
+                log(TAG, WARN) { "Bluetooth is disabled, aborting monitor session." }
+            }
+            return
+        }
+
         // Seed snapshot eagerly so onDestroy() has correct values even if we abort below.
         latestNotificationSettings = NotificationSettings(
             useExtraNotification = generalSettings.showLiveBatteryInNotification.flow.first() && generalSettings.useExtraMonitorNotification.flow.first(),
@@ -472,6 +493,7 @@ class MonitorService : Service() {
                                     if (!destroyed && monitorGeneration == generation && popupCollectionOwner === owner) {
                                         when (event) {
                                             is PopUpReaction.Event.PopupShow -> popUpWindow.show(event.device)
+                                            is PopUpReaction.Event.PopupUpdate -> popUpWindow.update(event.device)
                                             is PopUpReaction.Event.PopupHide -> popUpWindow.close()
                                         }
                                     }
@@ -545,6 +567,16 @@ class MonitorService : Service() {
             log(TAG, WARN) { "onDestroy: Skipping notification cleanup, injection was incomplete." }
         }
 
+        if (injectionComplete) {
+            // Hand detection back to the system-managed wake registration so monitoring can resume
+            // when the earbuds appear again. A no-op while the user has monitoring switched off.
+            try {
+                wakeScan.releaseFromSession()
+            } catch (e: Exception) {
+                log(TAG, WARN) { "Failed to release the wake scan: ${e.message}" }
+            }
+        }
+
         super.onDestroy()
     }
 
@@ -553,6 +585,18 @@ class MonitorService : Service() {
     companion object {
         val TAG = logTag("Monitor", "Service")
         private const val EXTRA_FORCE_START = "extra.force_start"
+
+        /**
+         * Whether a start request may rebuild a monitor session.
+         *
+         * Only two things block it: the user's explicit stop, and Bluetooth being switched off. An
+         * unknown Bluetooth state (no adapter, no permission to query it) does NOT block: treating
+         * "cannot tell" as "off" would silently drop exactly the recovery this is meant to serve.
+         * Nothing here retries — the sticky restart and the registered wake scan provide the next
+         * opportunity instead, so a rejected start cannot turn into a restart loop.
+         */
+        internal fun shouldRestoreSession(monitoringEnabled: Boolean, bluetoothEnabled: Boolean?): Boolean =
+            monitoringEnabled && bluetoothEnabled != false
 
         fun intent(context: Context, forceStart: Boolean = false): Intent {
             return Intent(context, MonitorService::class.java).apply {

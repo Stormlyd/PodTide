@@ -259,6 +259,8 @@ class PopUpWindowTest {
         val service = org.robolectric.Robolectric.buildService(eu.darken.capod.monitor.core.worker.MonitorService::class.java).create().get()
         service.popUpWindow = window
         service.notificationManager = context.getSystemService(android.app.NotificationManager::class.java)
+        eu.darken.capod.monitor.core.worker.MonitorService::class.java.getDeclaredField("wakeScan").apply { isAccessible = true }
+            .set(service, io.mockk.mockk<eu.darken.capod.monitor.core.ble.MonitorWakeScan>(relaxed = true))
         eu.darken.capod.monitor.core.worker.MonitorService::class.java.getDeclaredField("injectionComplete").apply { isAccessible = true }.set(service, true)
         service.onDestroy()
         assertTrue(attached.isEmpty())

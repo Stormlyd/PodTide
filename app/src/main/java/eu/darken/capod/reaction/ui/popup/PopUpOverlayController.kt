@@ -142,6 +142,21 @@ internal class PopUpOverlayController(
         } catch (e: Exception) { fail(e) }
     }
 
+    /**
+     * Refreshes the content of an overlay that is already on screen. Never creates, enters or
+     * re-animates a window: a second event that belongs to the same interaction (e.g. the
+     * connection completing right after a case-open popup) must not look like a new popup.
+     */
+    fun updateIfVisible(device: PodDevice): Unit = onMain {
+        val current = composeView
+        if (current == null || !added || exiting || isMainActivityVisible) return@onMain
+        if (!Settings.canDrawOverlays(appContext)) return@onMain
+        try {
+            deviceState?.value = device
+            updateBounds()
+        } catch (e: Exception) { fail(e) }
+    }
+
     fun close(): Unit = onMain {
         invalidateLifetime()
         val view = composeView ?: return@onMain

@@ -10,8 +10,11 @@ import eu.darken.capod.monitor.core.PodDevice
 import eu.darken.capod.pods.core.apple.ble.devices.DualApplePods
 import eu.darken.capod.profiles.core.ReactionConfig
 import io.kotest.matchers.shouldBe
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flowOf
@@ -28,6 +31,23 @@ import testhelpers.TestTimeSource
 import java.time.Duration
 
 class PopUpLifecycleTest : BaseTest() {
+
+    /** Production wiring minus the persisted state, which defaults to "nothing stored". */
+    private fun reaction(
+        monitor: DeviceMonitor,
+        bluetooth: BluetoothManager2,
+        clock: TestTimeSource,
+        store: PopUpStateStore = mockk(relaxed = true) {
+            coEvery { loadRestorableRound() } returns null
+        },
+    ) = PopUpReaction(
+        deviceMonitor = monitor,
+        bluetoothManager = bluetooth,
+        timeSource = clock,
+        popUpStateStore = store,
+        scope = CoroutineScope(Dispatchers.Unconfined),
+    )
+
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
     fun `new observed audio connection shows popup independently of missing or stale BLE`(withStaleBle: Boolean) = runTest {
@@ -40,14 +60,17 @@ class PopUpLifecycleTest : BaseTest() {
             every { rawDataHex } returns emptyList()
             every { caseLidState } returns DualApplePods.LidState.UNKNOWN
             every { isSystemConnected } returns false
-            every { ble } returns if (withStaleBle) mockk { every { seenLastAt } returns clock.now().minusSeconds(120) } else null
+            every { ble } returns if (withStaleBle) mockk {
+                every { seenLastAt } returns clock.now().minusSeconds(120)
+                every { scanResult } returns nativeScan(clock, 1L)
+            } else null
         }
         val devices = MutableStateFlow(emptyList<BluetoothDevice2>())
         val monitor = mockk<DeviceMonitor> { every { primaryDeviceByTier } returns flowOf(device) }
         val bluetooth = mockk<BluetoothManager2> { every { connectedDevices } returns devices }
         val shown = mutableListOf<PopUpReaction.Event.PopupShow>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            PopUpReaction(monitor, bluetooth, clock).monitor()
+            reaction(monitor, bluetooth, clock).monitor()
                 .filterIsInstance<PopUpReaction.Event.PopupShow>().collect { shown += it }
         }
         runCurrent()
@@ -66,9 +89,10 @@ class PopUpLifecycleTest : BaseTest() {
         val deviceFlow = MutableStateFlow<PodDevice?>(null)
         val monitor = mockk<DeviceMonitor> { every { primaryDeviceByTier } returns deviceFlow }
         val bluetooth = mockk<BluetoothManager2> { every { connectedDevices } returns flowOf(emptyList()) }
-        val reaction = PopUpReaction(monitor, bluetooth, clock)
+        val reaction = reaction(monitor, bluetooth, clock)
         fun device(lid: DualApplePods.LidState): PodDevice = mockk {
             every { profileId } returns "owned-pods"
+            every { address } returns null
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf(lid.name)
             every { caseLidState } returns lid
@@ -100,12 +124,13 @@ class PopUpLifecycleTest : BaseTest() {
         val bluetooth = mockk<BluetoothManager2> { every { connectedDevices } returns flowOf(emptyList()) }
         val shown = mutableListOf<PopUpReaction.Event.PopupShow>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            PopUpReaction(monitor, bluetooth, clock).monitor()
+            reaction(monitor, bluetooth, clock).monitor()
                 .filterIsInstance<PopUpReaction.Event.PopupShow>().collect { shown += it }
         }
         runCurrent()
         fun device(lid: DualApplePods.LidState, timestamp: Long): PodDevice = mockk {
             every { profileId } returns "owned-pods"
+            every { address } returns null
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf(lid.name, timestamp.toString())
             every { caseLidState } returns lid
@@ -134,9 +159,10 @@ class PopUpLifecycleTest : BaseTest() {
         val shown = mutableListOf<PopUpReaction.Event.PopupShow>()
         val hidden = mutableListOf<PopUpReaction.Event.PopupHide>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            PopUpReaction(monitor, bluetooth, clock).monitor().collect {
+            reaction(monitor, bluetooth, clock).monitor().collect {
                 when (it) {
                     is PopUpReaction.Event.PopupShow -> shown += it
+                    is PopUpReaction.Event.PopupUpdate -> Unit
                     is PopUpReaction.Event.PopupHide -> hidden += it
                 }
             }
@@ -144,6 +170,7 @@ class PopUpLifecycleTest : BaseTest() {
         runCurrent()
         fun open(nativeAt: Long): PodDevice = mockk {
             every { profileId } returns "owned-pods"
+            every { address } returns null
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf("identical-OPEN-payload")
             every { caseLidState } returns DualApplePods.LidState.OPEN
@@ -185,9 +212,10 @@ class PopUpLifecycleTest : BaseTest() {
         val shown = mutableListOf<PopUpReaction.Event.PopupShow>()
         val hidden = mutableListOf<PopUpReaction.Event.PopupHide>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            PopUpReaction(monitor, bluetooth, clock).monitor().collect {
+            reaction(monitor, bluetooth, clock).monitor().collect {
                 when (it) {
                     is PopUpReaction.Event.PopupShow -> shown += it
+                    is PopUpReaction.Event.PopupUpdate -> Unit
                     is PopUpReaction.Event.PopupHide -> hidden += it
                 }
             }
@@ -196,6 +224,7 @@ class PopUpLifecycleTest : BaseTest() {
         val scan = nativeScan(clock, clock.elapsedRealtimeNanos())
         deviceFlow.value = mockk {
             every { profileId } returns "owned-pods"
+            every { address } returns null
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf("OPEN")
             every { caseLidState } returns DualApplePods.LidState.OPEN
@@ -221,10 +250,11 @@ class PopUpLifecycleTest : BaseTest() {
         val bluetooth = mockk<BluetoothManager2> { every { connectedDevices } returns flowOf(emptyList()) }
         val shown = mutableListOf<PopUpReaction.Event.PopupShow>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            PopUpReaction(monitor, bluetooth, clock).monitor().filterIsInstance<PopUpReaction.Event.PopupShow>().collect { shown += it }
+            reaction(monitor, bluetooth, clock).monitor().filterIsInstance<PopUpReaction.Event.PopupShow>().collect { shown += it }
         }
         fun connectedOpen(): PodDevice = mockk {
             every { profileId } returns "owned-pods"
+            every { address } returns null
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf("OPEN")
             every { caseLidState } returns DualApplePods.LidState.OPEN
@@ -236,6 +266,123 @@ class PopUpLifecycleTest : BaseTest() {
         deviceFlow.value = connectedOpen()
         runCurrent()
         shown.size shouldBe 0
+    }
+
+    /**
+     * The first emission a restored service sees is a snapshot of the current system state, not an
+     * event. Treating it as a new connection would pop up every time the process is rebuilt while
+     * the earbuds are in the ears; treating an empty snapshot as a disconnect would hide popups.
+     */
+    @Test
+    fun `a restart that already finds the device connected neither pops up nor hides`() = runTest {
+        val clock = TestTimeSource(elapsedRealtimeNanosValue = 100_000_000_000L)
+        val address = "AA:BB:CC:DD:EE:FF"
+        val device: PodDevice = mockk {
+            every { profileId } returns "owned-pods"
+            every { this@mockk.address } returns address
+            every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true, showPopUpOnConnection = true)
+            every { rawDataHex } returns emptyList()
+            every { caseLidState } returns DualApplePods.LidState.UNKNOWN
+            every { isSystemConnected } returns true
+            every { ble } returns null
+        }
+        val devices = MutableStateFlow(listOf(BluetoothDevice2(address, "Pods", clock.now())))
+        val monitor = mockk<DeviceMonitor> { every { primaryDeviceByTier } returns flowOf(device) }
+        val bluetooth = mockk<BluetoothManager2> { every { connectedDevices } returns devices }
+        val events = mutableListOf<PopUpReaction.Event>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            reaction(monitor, bluetooth, clock).monitor().collect { events += it }
+        }
+        runCurrent()
+
+        events.filterIsInstance<PopUpReaction.Event.PopupShow>() shouldBe emptyList()
+        events.filterIsInstance<PopUpReaction.Event.PopupHide>() shouldBe emptyList()
+
+        // A real disconnect afterwards is still an event.
+        devices.value = emptyList()
+        runCurrent()
+        events.filterIsInstance<PopUpReaction.Event.PopupHide>().size shouldBe 1
+    }
+
+    /**
+     * The persisted round is what survives a process death: without it the still-open lid shows the
+     * same popup again, and the connection that follows would be treated as a separate interaction.
+     */
+    @Test
+    fun `a restored round suppresses the duplicate case popup after a restart`() = runTest {
+        val clock = TestTimeSource(elapsedRealtimeMs = 200_000L, elapsedRealtimeNanosValue = 200_000_000_000L)
+        val store = mockk<PopUpStateStore>(relaxed = true) {
+            // Shown 3s before the process died, inside the same boot.
+            coEvery { loadRestorableRound() } returns PopUpStateStore.Round(
+                profileId = "owned-pods",
+                shownAtElapsedMillis = 197_000L,
+                bootCount = 7,
+            )
+        }
+        val deviceFlow = MutableStateFlow<PodDevice?>(null)
+        val monitor = mockk<DeviceMonitor> { every { primaryDeviceByTier } returns deviceFlow }
+        val bluetooth = mockk<BluetoothManager2> { every { connectedDevices } returns flowOf(emptyList()) }
+        val shown = mutableListOf<PopUpReaction.Event.PopupShow>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            reaction(monitor, bluetooth, clock, store).monitor()
+                .filterIsInstance<PopUpReaction.Event.PopupShow>().collect { shown += it }
+        }
+        runCurrent()
+
+        deviceFlow.value = lidDevice(clock, DualApplePods.LidState.OPEN)
+        runCurrent()
+        shown shouldBe emptyList()
+
+        // Closing the lid ends the round, so the next open is a new interaction again.
+        clock.advanceBy(Duration.ofSeconds(11))
+        deviceFlow.value = lidDevice(clock, DualApplePods.LidState.CLOSED)
+        runCurrent()
+        clock.advanceBy(Duration.ofSeconds(1))
+        deviceFlow.value = lidDevice(clock, DualApplePods.LidState.OPEN)
+        runCurrent()
+        shown.size shouldBe 1
+    }
+
+    /** One interaction: the lid opens the popup, the connection that follows only refreshes it. */
+    @Test
+    fun `a connection completing an open case round updates the popup instead of showing a second one`() = runTest {
+        val clock = TestTimeSource(elapsedRealtimeMs = 100_000L, elapsedRealtimeNanosValue = 100_000_000_000L)
+        val address = "AA:BB:CC:DD:EE:FF"
+        val deviceFlow = MutableStateFlow<PodDevice?>(null)
+        val devices = MutableStateFlow(emptyList<BluetoothDevice2>())
+        val monitor = mockk<DeviceMonitor> { every { primaryDeviceByTier } returns deviceFlow }
+        val bluetooth = mockk<BluetoothManager2> { every { connectedDevices } returns devices }
+        val events = mutableListOf<PopUpReaction.Event>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            reaction(monitor, bluetooth, clock).monitor().collect { events += it }
+        }
+        runCurrent()
+
+        deviceFlow.value = lidDevice(clock, DualApplePods.LidState.OPEN, address)
+        runCurrent()
+        events.filterIsInstance<PopUpReaction.Event.PopupShow>().size shouldBe 1
+
+        devices.value = listOf(BluetoothDevice2(address, "Pods", clock.now()))
+        runCurrent()
+        events.filterIsInstance<PopUpReaction.Event.PopupShow>().size shouldBe 1
+        events.filterIsInstance<PopUpReaction.Event.PopupUpdate>().size shouldBe 1
+    }
+
+    private fun lidDevice(
+        clock: TestTimeSource,
+        lid: DualApplePods.LidState,
+        address: String? = null,
+    ): PodDevice = mockk {
+        every { profileId } returns "owned-pods"
+        every { this@mockk.address } returns address
+        every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true, showPopUpOnConnection = true)
+        every { rawDataHex } returns listOf(lid.name)
+        every { caseLidState } returns lid
+        every { isSystemConnected } returns false
+        every { ble } returns mockk {
+            every { seenLastAt } returns clock.now()
+            every { scanResult } returns nativeScan(clock, clock.elapsedRealtimeNanos())
+        }
     }
 
     private fun nativeScan(clock: TestTimeSource, timestamp: Long): BleScanResult {

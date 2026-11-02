@@ -56,10 +56,8 @@
     <string name="settings_compat_offloaded_batching_disabled_summary">如果电量更新总是延迟或成批出现，可以试试此选项。手机会立即转发每个蓝牙信号，而不先将其收集起来。</string>
     <string name="settings_onepod_mode_label">单耳模式</string>
     <string name="settings_onepod_mode_description">只要有一只耳机，自动播放、自动暂停和自动连接就会响应，无需等待两只耳机。</string>
-    <string name="settings_popup_caseopen_label">显示开盒弹窗</string>
-    <string name="settings_popup_caseopen_description">打开耳机充电盒时显示弹窗。若与手机系统弹窗重叠，可在此关闭。</string>
-    <string name="settings_popup_connected_label">显示连接弹窗</string>
-    <string name="settings_popup_connected_description">每次建立新连接时显示弹窗。若与手机系统弹窗重叠，可在此关闭。</string>
+    <string name="settings_popup_status_label">耳机状态弹窗</string>
+    <string name="settings_popup_status_description">打开耳机盒或耳机新连接时显示电量弹窗，持续连接期间不重复显示。</string>
     <string name="settings_popup_info_not_in_app">仅在你未打开本应用时显示弹窗。</string>
     <string name="settings_charged_notification_label">达到目标电量通知</string>
     <string name="settings_charged_notification_description">正在充电的设备全部达到目标电量后，显示通知。</string>

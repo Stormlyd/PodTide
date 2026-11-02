@@ -512,14 +512,13 @@ class DeviceSettingsViewModel @Inject constructor(
         updateProfileNow { it.copy(autoConnectCondition = condition) }
     }
 
-    fun setShowPopUpOnCaseOpen(enabled: Boolean) {
-        log(TAG, INFO) { "setShowPopUpOnCaseOpen($enabled)" }
-        proGatedReaction(enabled) { it.copy(showPopUpOnCaseOpen = enabled) }
-    }
-
-    fun setShowPopUpOnConnection(enabled: Boolean) {
-        log(TAG, INFO) { "setShowPopUpOnConnection($enabled)" }
-        proGatedReaction(enabled) { it.copy(showPopUpOnConnection = enabled) }
+    fun setShowStatusPopUp(enabled: Boolean) {
+        log(TAG, INFO) { "setShowStatusPopUp($enabled)" }
+        // One user-facing switch, two persisted flags: writing both keeps old profiles readable
+        // and makes the OR-based legacy migration stable.
+        proGatedReaction(enabled) {
+            it.copy(showPopUpOnCaseOpen = enabled, showPopUpOnConnection = enabled)
+        }
     }
 
     fun setNotifyWhenCharged(enabled: Boolean) {

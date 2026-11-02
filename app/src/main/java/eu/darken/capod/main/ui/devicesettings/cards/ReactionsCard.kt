@@ -67,8 +67,7 @@ internal fun ReactionsCard(
     onSleepDetectionChange: (Boolean) -> Unit = {},
     onAutoConnectChange: (Boolean) -> Unit = {},
     onAutoConnectConditionChange: (AutoConnectCondition) -> Unit = {},
-    onShowPopUpOnCaseOpenChange: (Boolean) -> Unit = {},
-    onShowPopUpOnConnectionChange: (Boolean) -> Unit = {},
+    onShowStatusPopUpChange: (Boolean) -> Unit = {},
     onOpenIssueTracker: () -> Unit = {},
 ) {
     val reactions = device.reactions
@@ -263,26 +262,15 @@ internal fun ReactionsCard(
             )
         }
         ReactionsDivider()
-        if (features.hasCase) {
-            SettingsSwitchItem(
-                icon = Icons.AutoMirrored.TwoTone.Message,
-                title = stringResource(R.string.settings_popup_caseopen_label),
-                subtitle = stringResource(R.string.settings_popup_caseopen_description),
-                checked = reactions.showPopUpOnCaseOpen,
-                onCheckedChange = onShowPopUpOnCaseOpenChange,
-                requiresUpgrade = !isPro,
-            )
-        }
         SettingsSwitchItem(
             icon = Icons.AutoMirrored.TwoTone.Message,
-            title = stringResource(R.string.settings_popup_connected_label),
-            subtitle = stringResource(R.string.settings_popup_connected_description),
-            checked = reactions.showPopUpOnConnection,
-            onCheckedChange = onShowPopUpOnConnectionChange,
+            title = stringResource(R.string.settings_popup_status_label),
+            subtitle = stringResource(R.string.settings_popup_status_description),
+            checked = reactions.showStatusPopUp,
+            onCheckedChange = onShowStatusPopUpChange,
             requiresUpgrade = !isPro,
         )
-        val anyPopupEnabled = reactions.showPopUpOnCaseOpen || reactions.showPopUpOnConnection
-        if (anyPopupEnabled) {
+        if (reactions.showStatusPopUp) {
             SettingsInfoBox(
                 text = stringResource(R.string.settings_popup_info_not_in_app),
             )

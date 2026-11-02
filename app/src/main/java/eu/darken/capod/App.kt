@@ -23,6 +23,7 @@ import eu.darken.capod.monitor.core.DeviceMonitor
 import eu.darken.capod.monitor.core.battery.BatteryEstimator
 import eu.darken.capod.monitor.core.battery.displayKey
 import eu.darken.capod.monitor.core.battery.estimateFor
+import eu.darken.capod.monitor.core.ble.MonitorWakeScan
 
 import eu.darken.capod.monitor.core.devicesWithProfiles
 
@@ -49,6 +50,7 @@ open class App : Application(), Configuration.Provider {
     @Inject lateinit var phoneBatteryWidgetUpdater: PhoneBatteryWidgetUpdater
     @Inject lateinit var upgradeRepo: UpgradeRepo
     @Inject lateinit var batteryEstimator: BatteryEstimator
+    @Inject lateinit var wakeScan: MonitorWakeScan
     @Inject @AppScope lateinit var appScope: CoroutineScope
 
     override fun onCreate() {
@@ -79,6 +81,12 @@ open class App : Application(), Configuration.Provider {
 
         appScope.launch { widgetManager.refreshWidgets() }
         phoneBatteryWidgetUpdater.setup()
+
+        // Whatever started this process (boot, a Bluetooth event, the UI), make sure the
+        // system-managed wake scan exists while no monitor session is running. It checks the
+        // persisted user intent itself, so a process start never resumes monitoring the user
+        // switched off, and a running session suppresses it to avoid duplicate scans.
+        wakeScan.ensureRegistered()
 
         combine(
             deviceMonitor.devicesWithProfiles(),

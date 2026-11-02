@@ -5,8 +5,10 @@ import eu.darken.capod.common.navigation.NavEvent
 import eu.darken.capod.common.theming.ThemeMode
 import eu.darken.capod.common.upgrade.UpgradeRepo
 import eu.darken.capod.main.core.GeneralSettings
+import eu.darken.capod.monitor.core.worker.MonitorControl
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +42,7 @@ class GeneralSettingsViewModelTest : BaseTest() {
     private lateinit var generalSettings: GeneralSettings
     private lateinit var upgradeRepo: UpgradeRepo
     private lateinit var upgradeInfoFlow: MutableStateFlow<UpgradeRepo.Info>
+    private val monitorControl = mockk<MonitorControl>(relaxed = true)
 
     private lateinit var themeMode: FakeDataStoreValue<ThemeMode>
     private lateinit var themeStyle: FakeDataStoreValue<ThemeStyle>
@@ -76,6 +79,7 @@ class GeneralSettingsViewModelTest : BaseTest() {
             every { it.showBottomPopup } returns FakeDataStoreValue(true).mock
             every { it.showTopPopup } returns FakeDataStoreValue(false).mock
             every { it.hideUnmatchedDevices } returns FakeDataStoreValue(false).mock
+            every { it.monitoringEnabled } returns FakeDataStoreValue(true).mock
             every { it.themeMode } returns themeMode.mock
             every { it.themeStyle } returns themeStyle.mock
             every { it.themeColor } returns themeColor.mock
@@ -107,6 +111,7 @@ class GeneralSettingsViewModelTest : BaseTest() {
         dispatcherProvider = TestDispatcherProvider(testDispatcher),
         generalSettings = generalSettings,
         upgradeRepo = upgradeRepo,
+        monitorControl = monitorControl,
     ).also { vm = it }
 
     @Test fun `retired top popup stays disabled even if previously selected`() = runVmTest {
@@ -209,5 +214,20 @@ class GeneralSettingsViewModelTest : BaseTest() {
         vm.setHideUnmatchedDevices(true)
 
         vm.state.first().hideUnmatchedDevices shouldBe true
+    }
+
+    /**
+     * The monitoring switch is the only explicit stop. It must reach MonitorControl, which persists
+     * the intent before tearing anything down — never a side effect of leaving the screen.
+     */
+    @Test
+    fun `the monitoring switch is routed to the monitor control`() = runVmTest {
+        val vm = createViewModel()
+        vm.state.first()
+
+        vm.setMonitoringEnabled(false)
+        runCurrent()
+
+        coVerify { monitorControl.setMonitoringEnabled(false) }
     }
 }

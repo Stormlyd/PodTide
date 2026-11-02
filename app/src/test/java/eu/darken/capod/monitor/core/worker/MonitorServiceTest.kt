@@ -5,11 +5,14 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.app.Service
 import androidx.core.app.NotificationCompat
+import eu.darken.capod.monitor.core.ble.MonitorWakeScan
 import eu.darken.capod.monitor.ui.MonitorNotifications
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.types.shouldBeSameInstanceAs
 import io.kotest.matchers.types.shouldNotBeSameInstanceAs
+import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Job
@@ -55,6 +58,8 @@ class MonitorServiceTest {
         // Hilt injection fails on a plain Application, so wire what the tests need by hand and
         // reset the flags onCreate() left behind.
         service.notificationManager = context.getSystemService(NotificationManager::class.java)
+        service.setField("wakeScan", mockk<MonitorWakeScan>(relaxed = true))
+        service.setField("monitoringState", mockk<MonitoringState> { coEvery { isEnabled() } returns true })
         service.setField("foregroundStartFailed", false)
         service.setField("injectionComplete", false)
         service.setField("monitoringJob", null)
@@ -233,5 +238,41 @@ class MonitorServiceTest {
         service.onDestroy()
 
         verify(exactly = 0) { manager.cancel(any<Int>()) }
+    }
+
+    /**
+     * The system restarts sticky services with a null Intent, and every recovery entry point lands
+     * in the same command handler. It must still satisfy the foreground obligation without crashing.
+     */
+    @Test
+    fun `a null intent restart still satisfies the foreground obligation`() {
+        val service = createService()
+        service.readyForMonitoring()
+
+        service.onStartCommand(null, 0, 1) shouldBe Service.START_STICKY
+
+        shadowOf(service).lastForegroundNotification shouldNotBe null
+    }
+
+    /**
+     * The restore gate shared by every recovery path: the user's stop and Bluetooth being off block
+     * a session; an unknown Bluetooth state must not, or "cannot tell" would silently mean "off".
+     */
+    @Test
+    fun `a session is not restored after the user switched monitoring off`() {
+        MonitorService.shouldRestoreSession(monitoringEnabled = false, bluetoothEnabled = true) shouldBe false
+        MonitorService.shouldRestoreSession(monitoringEnabled = false, bluetoothEnabled = null) shouldBe false
+        MonitorService.shouldRestoreSession(monitoringEnabled = false, bluetoothEnabled = false) shouldBe false
+    }
+
+    @Test
+    fun `a session is not restored while bluetooth is switched off`() {
+        MonitorService.shouldRestoreSession(monitoringEnabled = true, bluetoothEnabled = false) shouldBe false
+    }
+
+    @Test
+    fun `an unknown bluetooth state does not block restoration`() {
+        MonitorService.shouldRestoreSession(monitoringEnabled = true, bluetoothEnabled = null) shouldBe true
+        MonitorService.shouldRestoreSession(monitoringEnabled = true, bluetoothEnabled = true) shouldBe true
     }
 }

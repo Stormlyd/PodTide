@@ -4,6 +4,7 @@ import eu.darken.capod.common.TimeSource
 import eu.darken.capod.common.bluetooth.BluetoothAddress
 import eu.darken.capod.common.bluetooth.BluetoothDevice2
 import eu.darken.capod.common.bluetooth.BluetoothManager2
+import eu.darken.capod.common.coroutine.AppScope
 import eu.darken.capod.common.debug.logging.Logging.Priority.VERBOSE
 import eu.darken.capod.common.debug.logging.log
 import eu.darken.capod.common.debug.logging.logTag
@@ -12,14 +13,17 @@ import eu.darken.capod.common.flow.withPrevious
 import eu.darken.capod.monitor.core.DeviceMonitor
 import eu.darken.capod.monitor.core.PodDevice
 import eu.darken.capod.pods.core.apple.ble.devices.DualApplePods
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
 import javax.inject.Inject
@@ -30,9 +34,19 @@ class PopUpReaction @Inject constructor(
     private val deviceMonitor: DeviceMonitor,
     private val bluetoothManager: BluetoothManager2,
     private val timeSource: TimeSource,
+    private val popUpStateStore: PopUpStateStore,
+    @AppScope private val scope: CoroutineScope,
 ) {
 
     private val caseCoolDowns = java.util.concurrent.ConcurrentHashMap<String, Instant>()
+
+    /**
+     * Open popup rounds keyed like [caseCoolDowns], valued with the [TimeSource.elapsedRealtime]
+     * at which the round started. A round opens with a case-open popup and closes when the lid
+     * closes or the device disconnects. A connection that completes inside the round belongs to
+     * the same user interaction, so it updates the visible popup instead of showing another one.
+     */
+    private val caseRounds = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private fun monitorCase(): Flow<Event> = deviceMonitor.primaryDeviceByTier
         .distinctUntilChangedBy {
@@ -43,20 +57,20 @@ class PopUpReaction @Inject constructor(
             // would swallow that transition and the popup would miss its show/hide.
             // A new measurement must reach the freshness transition below even when its bytes and
             // lid state match a stale frame received just before it.
-            listOf(it?.profileId, it?.reactions?.showPopUpOnCaseOpen, it?.rawDataHex,
+            listOf(it?.profileId, it?.reactions?.showStatusPopUp, it?.rawDataHex,
                 it?.caseLidState,
-                if (it?.reactions?.showPopUpOnCaseOpen == true) it.ble?.scanResult?.generatedAtNanos else null)
+                if (it?.reactions?.showStatusPopUp == true) it.ble?.scanResult?.generatedAtNanos else null)
         }
         .withPrevious()
         .setupCommonEventHandlers(TAG) { "popUpCase" }
         .mapNotNull { (previous, current) ->
-            val wasEligible = previous?.reactions?.showPopUpOnCaseOpen == true
-            val isEligible = current?.reactions?.showPopUpOnCaseOpen == true
+            val wasEligible = previous?.reactions?.showStatusPopUp == true
+            val isEligible = current?.reactions?.showStatusPopUp == true
 
             // Eligibility transition: just lost it (toggled off, or switched to a profile
             // with the toggle off). Dismiss any visible overlay immediately.
             if (wasEligible && !isEligible) {
-                log(TAG) { "Case popup eligibility lost, emitting Hide" }
+                log(TAG) { "Popup eligibility lost, emitting Hide" }
                 return@mapNotNull Event.PopupHide(timeSource.now())
             }
 
@@ -113,6 +127,7 @@ class PopUpReaction @Inject constructor(
         return when {
             decision.shouldShow -> {
                 caseCoolDowns[cooldownKey] = now
+                openRound(cooldownKey)
                 Event.PopupShow(eventAt = now, device = current)
             }
 
@@ -120,11 +135,51 @@ class PopUpReaction @Inject constructor(
                 // Don't stamp the cooldown on a non-CLOSED hide (UNKNOWN/NOT_IN_CASE). Refreshing it
                 // here would let a transient UNKNOWN (e.g. a brief out-of-case frame) suppress a
                 // genuine OPEN for the whole cooldown window. CLOSED still resets it above.
+                if (decision.shouldResetCooldown) closeRound(cooldownKey)
                 Event.PopupHide(now)
             }
 
             else -> null
         }
+    }
+
+    private fun openRound(key: String) {
+        val startedAt = timeSource.elapsedRealtime()
+        caseRounds[key] = startedAt
+        scope.launch { popUpStateStore.saveRound(key, startedAt) }
+    }
+
+    private fun closeRound(key: String) {
+        if (caseRounds.remove(key) != null) {
+            scope.launch { popUpStateStore.clearRound(key) }
+        }
+    }
+
+    /**
+     * True while the case-open round for [profileId] is still open. Bounded by [ROUND_WINDOW] so a
+     * forgotten record cannot suppress a later, unrelated connection popup forever.
+     */
+    internal fun isSameRound(profileId: String?): Boolean {
+        val startedAt = profileId?.let { caseRounds[it] } ?: return false
+        val age = timeSource.elapsedRealtime() - startedAt
+        return age in 0..ROUND_WINDOW.toMillis()
+    }
+
+    /**
+     * Re-seeds round state after a process restart. Without it, a restart while the lid is still
+     * open shows the same popup again, and a connection that completes right after the restart is
+     * treated as a brand new round instead of updating the popup the user already saw.
+     */
+    private suspend fun restorePersistedRound() {
+        val round = popUpStateStore.loadRestorableRound() ?: return
+        caseRounds[round.profileId] = round.shownAtElapsedMillis
+        // Mirror the round into the case cooldown so the still-open lid does not immediately
+        // re-trigger a show. The cooldown is wall-clock based, so translate the elapsed delta.
+        val ageMillis = timeSource.elapsedRealtime() - round.shownAtElapsedMillis
+        if (ageMillis >= 0) {
+            caseCoolDowns[round.profileId] = timeSource.now().minusMillis(ageMillis)
+        }
+        log(TAG) { "Restored popup round for ${round.profileId} (${ageMillis}ms old)." }
     }
 
     private val connectionCoolDowns = java.util.concurrent.ConcurrentHashMap<BluetoothAddress, Instant>()
@@ -138,10 +193,10 @@ class PopUpReaction @Inject constructor(
     private fun monitorConnection(): Flow<Event> = combine(
         bluetoothManager.connectedDevices,
         deviceMonitor.primaryDeviceByTier.distinctUntilChangedBy {
-            Triple(it?.profileId, it?.reactions?.showPopUpOnConnection, it?.rawDataHex)
+            Triple(it?.profileId, it?.reactions?.showStatusPopUp, it?.rawDataHex)
         },
     ) { devices, broadcast ->
-        val eligible = broadcast?.reactions?.showPopUpOnConnection == true
+        val eligible = broadcast?.reactions?.showStatusPopUp == true
         if (!eligible) {
             ConnectionWindow(direct = null, broadcast = null, eligible = false)
         } else {
@@ -160,20 +215,33 @@ class PopUpReaction @Inject constructor(
     }
         .withPrevious()
         .mapNotNull { (previous, current) ->
-            val wasEligible = previous?.eligible == true
             val isEligible = current.eligible
+
+            // The first emission after a (re)start is a snapshot of the current system state, not
+            // an event. A device that is already connected must not be reported as a new
+            // connection, and an empty snapshot must not be read as a disconnect either.
+            if (previous == null) {
+                val snapshotConnected = current.direct
+                if (isEligible && snapshotConnected != null) {
+                    connectionCoolDowns[snapshotConnected.address] = timeSource.now()
+                    log(TAG) { "Baseline snapshot: ${snapshotConnected.address} is already connected, not a new connection." }
+                }
+                return@mapNotNull null
+            }
+
+            val wasEligible = previous.eligible
 
             // Eligibility transition: dismiss any visible overlay immediately.
             if (wasEligible && !isEligible) {
-                log(TAG) { "Connection popup eligibility lost, emitting Hide" }
+                log(TAG) { "Popup eligibility lost, emitting Hide" }
                 return@mapNotNull Event.PopupHide(timeSource.now())
             }
 
             if (!isEligible) return@mapNotNull null
 
-            val previousConnected = previous?.direct
+            val previousConnected = previous.direct
             log(TAG, VERBOSE) { "previousConnected: $previousConnected" }
-            val previousBroadcasted = previous?.broadcast
+            val previousBroadcasted = previous.broadcast
             log(TAG, VERBOSE) { "previousBroadcasted: $previousBroadcasted" }
             val currentConnected = current.direct
             log(TAG, VERBOSE) { "currentConnected: $currentConnected" }
@@ -181,6 +249,9 @@ class PopUpReaction @Inject constructor(
             log(TAG, VERBOSE) { "currentBroadcasted: $currentBroadcasted" }
 
             if (previousConnected != null && previousBroadcasted != null && currentConnected == null) {
+                // The connection ended, so the popup round ended with it. A later open or connect
+                // is a genuinely new interaction.
+                previousBroadcasted.profileId?.let { closeRound(it) }
                 return@mapNotNull Event.PopupHide(timeSource.now())
             }
 
@@ -207,7 +278,13 @@ class PopUpReaction @Inject constructor(
 
             if (decision.shouldShow) {
                 connectionCoolDowns[currentConnected.address] = now
-                Event.PopupShow(eventAt = now, device = currentBroadcasted)
+                if (isSameRound(currentBroadcasted.profileId)) {
+                    // Same open-case round: refresh what is on screen instead of popping up again.
+                    log(TAG) { "Connection completed the open-case round, updating popup content." }
+                    Event.PopupUpdate(eventAt = now, device = currentBroadcasted)
+                } else {
+                    Event.PopupShow(eventAt = now, device = currentBroadcasted)
+                }
             } else {
                 null
             }
@@ -240,7 +317,7 @@ class PopUpReaction @Inject constructor(
 
     /** True while the primary device is eligible and currently advertising a fresh OPEN lid. */
     internal fun isCaseOpenBroadcastFresh(device: PodDevice?): Boolean {
-        if (device?.reactions?.showPopUpOnCaseOpen != true) return false
+        if (device?.reactions?.showStatusPopUp != true) return false
         if (device.caseLidState != DualApplePods.LidState.OPEN) return false
         // The lid is a BLE-only measurement. Callback delivery, cached timestamps and AAP activity
         // cannot extend its freshness; a wall-clock adjustment cannot rejuvenate it either.
@@ -255,10 +332,22 @@ class PopUpReaction @Inject constructor(
         }
     }
 
-    fun monitor(): Flow<Event> = merge(monitorCase(), monitorConnection(), monitorCaseStaleClose())
+    fun monitor(): Flow<Event> = flow {
+        restorePersistedRound()
+        emitAll(merge(monitorCase(), monitorConnection(), monitorCaseStaleClose()))
+    }
 
     sealed class Event {
         data class PopupShow(
+            val eventAt: Instant,
+            val device: PodDevice,
+        ) : Event()
+
+        /**
+         * The popup for this interaction is already on screen (same round); refresh its content
+         * without creating or re-animating an overlay.
+         */
+        data class PopupUpdate(
             val eventAt: Instant,
             val device: PodDevice,
         ) : Event()
@@ -366,5 +455,11 @@ class PopUpReaction @Inject constructor(
 
         /** How often the stale-close backstop re-evaluates freshness. */
         private val STALE_CHECK_INTERVAL: Duration = Duration.ofSeconds(2)
+
+        /**
+         * How long an open-case round stays valid. A connection completing inside this window
+         * updates the popup that is already on screen instead of showing a second one.
+         */
+        internal val ROUND_WINDOW: Duration = Duration.ofSeconds(90)
     }
 }

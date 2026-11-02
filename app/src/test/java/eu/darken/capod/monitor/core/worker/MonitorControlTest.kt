@@ -6,12 +6,23 @@ import android.app.ForegroundServiceStartNotAllowedException
 import android.content.Context
 import eu.darken.capod.common.debug.logging.Logging
 import eu.darken.capod.common.startServiceCompat
+import eu.darken.capod.monitor.core.ble.MonitorWakeScan
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.spyk
 import io.mockk.unmockkAll
+import io.mockk.verify
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -56,12 +67,20 @@ class MonitorControlTest {
         .filter { it.first == Logging.Priority.WARN }
         .map { it.third }
 
+    private fun allMessages(): List<String> = logLines.map { it.third }
+
+    private fun state(enabled: Boolean) = mockk<MonitoringState> {
+        every { this@mockk.enabled } returns MutableStateFlow(enabled)
+        coEvery { setEnabled(any()) } returns Unit
+        coEvery { isEnabled() } returns enabled
+    }
+
     @Test
     fun `background start rejections are logged as such`() {
         val failure = ForegroundServiceStartNotAllowedException("not allowed from background")
         every { any<Context>().startServiceCompat(any()) } throws failure
 
-        MonitorControl(context).startMonitor()
+        MonitorControl(context, state(enabled = true), mockk(relaxed = true)).startMonitor()
 
         val warning = warnings().single { it.contains("Start rejected") }
         warning shouldContain ForegroundServiceStartNotAllowedException::class.java.name
@@ -72,7 +91,7 @@ class MonitorControlTest {
         val failure = IllegalStateException("something else")
         every { any<Context>().startServiceCompat(any()) } throws failure
 
-        MonitorControl(context).startMonitor()
+        MonitorControl(context, state(enabled = true), mockk(relaxed = true)).startMonitor()
 
         val warning = warnings().single { it.contains("Failed to start monitor service") }
         warning shouldContain IllegalStateException::class.java.name
@@ -84,9 +103,56 @@ class MonitorControlTest {
         val failure = SecurityException("missing permission")
         every { any<Context>().startServiceCompat(any()) } throws failure
 
-        MonitorControl(context).startMonitor()
+        MonitorControl(context, state(enabled = true), mockk(relaxed = true)).startMonitor()
 
         val warning = warnings().single { it.contains("Failed to start monitor service") }
         warning shouldContain SecurityException::class.java.name
+    }
+
+    /**
+     * A delayed boot broadcast, Bluetooth event or scan callback must not undo an explicit user
+     * stop. The check happens in the one entry point every recovery path funnels through.
+     */
+    @Test
+    fun `a start request is ignored while the user has monitoring switched off`() {
+        every { any<Context>().startServiceCompat(any()) } returns null
+
+        MonitorControl(context, state(enabled = false), mockk(relaxed = true)).startMonitor()
+
+        verify(exactly = 0) { any<Context>().startServiceCompat(any()) }
+        assertTrue(allMessages().any { it.contains("Monitoring is disabled by the user") })
+    }
+
+    /**
+     * The stop intent is written before anything is torn down, so a recovery event that races the
+     * shutdown already sees "off" and cannot restart monitoring.
+     */
+    @Test
+    fun `switching monitoring off persists the stop intent before teardown`() = runBlocking {
+        val order = mutableListOf<String>()
+        val monitoringState = mockk<MonitoringState> {
+            every { enabled } returns MutableStateFlow(true)
+            coEvery { setEnabled(false) } answers { order += "persist-stop-intent" }
+        }
+        val wakeScan = mockk<MonitorWakeScan>(relaxed = true) {
+            every { unregister() } answers { order += "unregister-wake-scan" }
+        }
+        val ctx = spyk(context)
+        every { ctx.stopService(any()) } answers { order += "stop-service"; true }
+
+        MonitorControl(ctx, monitoringState, wakeScan).setMonitoringEnabled(false)
+
+        assertEquals(listOf("persist-stop-intent", "unregister-wake-scan", "stop-service"), order)
+    }
+
+    @Test
+    fun `switching monitoring on restores the wake scan and requests a session`() = runBlocking {
+        every { any<Context>().startServiceCompat(any()) } returns null
+        val wakeScan = mockk<MonitorWakeScan>(relaxed = true)
+
+        MonitorControl(context, state(enabled = true), wakeScan).setMonitoringEnabled(true)
+
+        coVerify { wakeScan.ensureRegistered() }
+        verify { any<Context>().startServiceCompat(any()) }
     }
 }
