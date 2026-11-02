@@ -31,6 +31,7 @@ class AutoConnectLogicTest : BaseTest() {
         isEitherPodInEar: Boolean = false,
         onePodMode: Boolean = false,
         supportsEarDetection: Boolean = false,
+        isCaseSealed: Boolean = false,
     ) = autoConnect.evaluateAutoConnect(
         mainDeviceAddr = mainDeviceAddr,
         hasBondedDevice = hasBondedDevice,
@@ -41,7 +42,48 @@ class AutoConnectLogicTest : BaseTest() {
         isEitherPodInEar = isEitherPodInEar,
         onePodMode = onePodMode,
         supportsEarDetection = supportsEarDetection,
+        isCaseSealed = isCaseSealed,
     )
+
+    @Nested
+    inner class SealedCase {
+
+        @Test
+        fun `WHEN_SEEN with a shut case holding both pods - should NOT connect`() {
+            evaluate(
+                condition = AutoConnectCondition.WHEN_SEEN,
+                lidState = DualApplePods.LidState.CLOSED,
+                isCaseSealed = true,
+            ).shouldConnect shouldBe false
+        }
+
+        @Test
+        fun `sealed case wins over a parsed OPEN bit`() {
+            evaluate(
+                condition = AutoConnectCondition.CASE_OPEN,
+                lidState = DualApplePods.LidState.OPEN,
+                isCaseSealed = true,
+            ).shouldConnect shouldBe false
+        }
+
+        @Test
+        fun `lid open with both pods in case - should connect`() {
+            evaluate(
+                condition = AutoConnectCondition.CASE_OPEN,
+                lidState = DualApplePods.LidState.OPEN,
+                isCaseSealed = false,
+            ).shouldConnect shouldBe true
+        }
+
+        @Test
+        fun `pod out of the case - should connect`() {
+            evaluate(
+                condition = AutoConnectCondition.WHEN_SEEN,
+                lidState = DualApplePods.LidState.NOT_IN_CASE,
+                isCaseSealed = false,
+            ).shouldConnect shouldBe true
+        }
+    }
 
     @Nested
     inner class Preconditions {

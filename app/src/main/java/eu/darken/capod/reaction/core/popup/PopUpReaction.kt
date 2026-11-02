@@ -106,6 +106,10 @@ class PopUpReaction @Inject constructor(
 
     internal fun throttleCasePopUps(current: PodDevice): Event? {
         if (current.caseLidState == DualApplePods.LidState.OPEN && !isCaseOpenBroadcastFresh(current)) {
+            log(TAG, VERBOSE) {
+                "Case popup suppressed: lid OPEN but broadcast not fresh " +
+                    "(age=${current.ble?.scanResult?.observationAgeMillis(timeSource)})"
+            }
             return null
         }
         val cooldownKey = current.profileId ?: current.identifier?.toString() ?: return null
@@ -128,6 +132,14 @@ class PopUpReaction @Inject constructor(
             decision.shouldShow -> {
                 caseCoolDowns[cooldownKey] = now
                 openRound(cooldownKey)
+                // One greppable line per popup: enough to tell a genuine lid-open from a phantom
+                // frame or a recovered stale state when a user reports a surprising popup.
+                log(TAG) {
+                    "Case popup show: profile=${current.profileId} lid=${current.caseLidState} " +
+                        "sealed=${current.isCaseSealed} bothInCase=${(current.ble as? DualApplePods)?.areBothPodsInCase} " +
+                        "ageMs=${current.ble?.scanResult?.observationAgeMillis(timeSource)} " +
+                        "connected=${current.isSystemConnected} reason=${decision.reason}"
+                }
                 Event.PopupShow(eventAt = now, device = current)
             }
 
@@ -272,9 +284,15 @@ class PopUpReaction @Inject constructor(
                 broadcastAge = broadcastAge,
                 connectionAge = connectionAge,
                 isObservedPairedConnection = true,
+                isCaseSealed = currentBroadcasted.isCaseSealed,
             )
 
-            log(TAG) { "Connection popup decision: ${decision.reason}" }
+            log(TAG) {
+                "Connection popup decision: ${decision.reason} " +
+                    "(profile=${currentBroadcasted.profileId} ble=${currentBroadcasted.ble != null} " +
+                    "lid=${currentBroadcasted.caseLidState} sealed=${currentBroadcasted.isCaseSealed} " +
+                    "connAge=${connectionAge.toSeconds()}s broadcastAge=${broadcastAge.toSeconds()}s)"
+            }
 
             if (decision.shouldShow) {
                 connectionCoolDowns[currentConnected.address] = now
@@ -423,12 +441,20 @@ class PopUpReaction @Inject constructor(
         maxConnectionAge: Duration = Duration.ofSeconds(30),
         maxAgeDiff: Duration = Duration.ofSeconds(30),
         isObservedPairedConnection: Boolean = false,
+        /**
+         * The pods are shut inside their case. An audio connection in that state cannot be a
+         * user-facing "your earbuds connected" moment, so it must not pop up cached battery.
+         */
+        isCaseSealed: Boolean = false,
     ): ConnectionPopUpDecision {
         if (!hasConnectedDevice) {
             return ConnectionPopUpDecision(false, "No connected device")
         }
         if (!hasPodDevice) {
             return ConnectionPopUpDecision(false, "No pod device found")
+        }
+        if (isCaseSealed) {
+            return ConnectionPopUpDecision(false, "Case is shut with both pods inside, ignoring phantom connection")
         }
         if (connectionAge.abs() > maxConnectionAge) {
             return ConnectionPopUpDecision(false, "Connection is no longer new")

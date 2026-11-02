@@ -300,6 +300,21 @@ data class PodDevice(
     val caseLidState: DualApplePods.LidState?
         get() = (ble as? DualApplePods)?.caseLidState
 
+    /**
+     * True when the last BLE frame says the lid is shut *and* both pods are still inside: a sealed
+     * case. Nothing the user is wearing can be in there, so a system audio connection in this state
+     * is a phantom (auto-connect attempt, stack reconnect, half-open link) — not something to
+     * pop up battery for, and not something worth requesting a connection for either.
+     *
+     * BLE-only knowledge: a cache-only or AAP-only device cannot be classified, so it reports false
+     * and never suppresses anything on its own.
+     */
+    val isCaseSealed: Boolean
+        get() {
+            val dual = ble as? DualApplePods ?: return false
+            return dual.caseLidState == DualApplePods.LidState.CLOSED && dual.areBothPodsInCase
+        }
+
     // Microphone — AAP preferred (from primary pod identity), BLE fallback
     val isLeftPodMicrophone: Boolean?
         get() {

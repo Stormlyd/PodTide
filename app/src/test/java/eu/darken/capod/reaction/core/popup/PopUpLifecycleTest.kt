@@ -59,6 +59,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnConnection = true)
             every { rawDataHex } returns emptyList()
             every { caseLidState } returns DualApplePods.LidState.UNKNOWN
+            every { isCaseSealed } returns false
             every { isSystemConnected } returns false
             every { ble } returns if (withStaleBle) mockk {
                 every { seenLastAt } returns clock.now().minusSeconds(120)
@@ -96,6 +97,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf(lid.name)
             every { caseLidState } returns lid
+            every { isCaseSealed } returns false
             every { isSystemConnected } returns false
             every { ble } returns mockk {
                 every { seenLastAt } returns clock.now()
@@ -134,6 +136,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf(lid.name, timestamp.toString())
             every { caseLidState } returns lid
+            every { isCaseSealed } returns false
             every { isSystemConnected } returns false
             every { ble } returns mockk {
                 every { seenLastAt } returns clock.now()
@@ -174,6 +177,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf("identical-OPEN-payload")
             every { caseLidState } returns DualApplePods.LidState.OPEN
+            every { isCaseSealed } returns false
             every { isSystemConnected } returns false
             every { ble } returns mockk {
                 every { seenLastAt } returns clock.now()
@@ -228,6 +232,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf("OPEN")
             every { caseLidState } returns DualApplePods.LidState.OPEN
+            every { isCaseSealed } returns false
             every { isSystemConnected } returns false
             every { ble } returns mockk {
                 every { seenLastAt } answers { clock.now() }
@@ -258,6 +263,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true)
             every { rawDataHex } returns listOf("OPEN")
             every { caseLidState } returns DualApplePods.LidState.OPEN
+            every { isCaseSealed } returns false
             every { isSystemConnected } returns true
             every { ble } returns mockk {
                 every { scanResult } returns nativeScan(clock, clock.elapsedRealtimeNanos())
@@ -283,6 +289,7 @@ class PopUpLifecycleTest : BaseTest() {
             every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true, showPopUpOnConnection = true)
             every { rawDataHex } returns emptyList()
             every { caseLidState } returns DualApplePods.LidState.UNKNOWN
+            every { isCaseSealed } returns false
             every { isSystemConnected } returns true
             every { ble } returns null
         }
@@ -378,6 +385,7 @@ class PopUpLifecycleTest : BaseTest() {
         every { reactions } returns ReactionConfig(showPopUpOnCaseOpen = true, showPopUpOnConnection = true)
         every { rawDataHex } returns listOf(lid.name)
         every { caseLidState } returns lid
+        every { isCaseSealed } returns false
         every { isSystemConnected } returns false
         every { ble } returns mockk {
             every { seenLastAt } returns clock.now()

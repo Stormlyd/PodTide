@@ -117,6 +117,7 @@ class AutoConnect @Inject constructor(
             isEitherPodInEar = device.isEitherPodInEar ?: false,
             onePodMode = reactions.onePodMode,
             supportsEarDetection = device.hasEarDetection,
+            isCaseSealed = device.isCaseSealed,
         ).shouldConnect
     }
 
@@ -130,6 +131,12 @@ class AutoConnect @Inject constructor(
         isEitherPodInEar: Boolean,
         onePodMode: Boolean,
         supportsEarDetection: Boolean,
+        /**
+         * Pulses from a closed case are not a reason to wake anything up: the pods are sealed in
+         * there and cannot accept a connection. Requesting one only produces phantom connection
+         * events (and the battery popups that follow them).
+         */
+        isCaseSealed: Boolean = false,
     ): AutoConnectDecision {
         if (mainDeviceAddr.isNullOrEmpty()) {
             return AutoConnectDecision(false, "No main device address")
@@ -139,6 +146,9 @@ class AutoConnect @Inject constructor(
         }
         if (isAlreadyConnected) {
             return AutoConnectDecision(false, "Already connected")
+        }
+        if (isCaseSealed) {
+            return AutoConnectDecision(false, "Case is shut with both pods inside")
         }
         return when (condition) {
             AutoConnectCondition.WHEN_SEEN -> AutoConnectDecision(true, "WHEN_SEEN: device visible")

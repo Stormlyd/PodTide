@@ -143,13 +143,39 @@ class PopUpReactionLogicTest : BaseTest() {
             hasAlreadyShown: Boolean = false,
             broadcastAge: Duration = Duration.ofSeconds(5),
             connectionAge: Duration = Duration.ofSeconds(5),
+            isCaseSealed: Boolean = false,
         ) = popUpReaction.evaluateConnectionPopUp(
             hasConnectedDevice = hasConnectedDevice,
             hasPodDevice = hasPodDevice,
             hasAlreadyShown = hasAlreadyShown,
             broadcastAge = broadcastAge,
             connectionAge = connectionAge,
+            isCaseSealed = isCaseSealed,
         )
+
+        /**
+         * The reported bug: earbuds sit in a shut case for a long time and a popup appears out of
+         * nowhere. A connection observed while both pods are sealed in the case cannot be a
+         * user-facing "connected" moment, so it must not surface cached battery.
+         */
+        @Test
+        fun `sealed case connection - should NOT show`() {
+            evaluate(isCaseSealed = true).shouldShow shouldBe false
+        }
+
+        @Test
+        fun `sealed case wins even with a very fresh broadcast - should NOT show`() {
+            evaluate(
+                broadcastAge = Duration.ofMillis(500),
+                connectionAge = Duration.ofMillis(500),
+                isCaseSealed = true,
+            ).shouldShow shouldBe false
+        }
+
+        @Test
+        fun `pods out of the case - should show`() {
+            evaluate(isCaseSealed = false).shouldShow shouldBe true
+        }
 
         @Test
         fun `connected + pod found + within age + not shown yet - should show`() {
@@ -423,6 +449,7 @@ class PopUpReactionLogicTest : BaseTest() {
         }
         val scan = BleScanResult.fromScanResult(native, clock)
         every { caseLidState } returns lid
+        every { isCaseSealed } returns false
         // A real config, so the merged `showStatusPopUp` switch is exercised instead of stubbed.
         every { reactions } returns ReactionConfig(
             showPopUpOnCaseOpen = eligible,
