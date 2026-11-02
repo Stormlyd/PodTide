@@ -24,13 +24,14 @@ import androidx.compose.ui.unit.dp
 import eu.darken.capod.R
 import eu.darken.capod.monitor.core.PodDevice
 import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.usesProHeroArt
 import kotlin.math.roundToInt
 
 /** Compact native status card. Only observed audio connection and individual batteries are shown. */
 @Composable
 fun TopPopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Modifier, onOpen: () -> Unit = {}) {
     val colors = MaterialTheme.colorScheme
-    val proArtwork = device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)
+    val proArtwork = device.model.usesProHeroArt
     Surface(modifier.widthIn(max = 360.dp), shape = RoundedCornerShape(28.dp),
         color = colors.surface, border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = .45f)), shadowElevation = 6.dp) {
         Row(Modifier.background(Brush.verticalGradient(listOf(colors.surface.copy(alpha = .98f), colors.surfaceContainer.copy(alpha = .96f))))

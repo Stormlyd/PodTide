@@ -81,6 +81,8 @@ import eu.darken.capod.monitor.core.battery.caseCharges
 import eu.darken.capod.monitor.core.batteryCaseReading
 import eu.darken.capod.monitor.core.cachedBatteryFormatted
 import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.artwork
+import eu.darken.capod.pods.core.apple.usesProHeroArt
 import eu.darken.capod.pods.core.apple.aap.AapPodState
 import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
 import eu.darken.capod.pods.core.apple.ble.batteryProgress
@@ -123,7 +125,7 @@ fun DualPodsCard(
             // Give the device its own visual anchor in the expanded view.
             if (!isCollapsed) {
                 Image(
-                    painter = painterResource(if (device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)) R.drawable.popup_pro_hero else device.iconRes),
+                    painter = painterResource(device.model.artwork.hero),
                     contentDescription = null,
                     modifier = Modifier.fillMaxWidth().height(112.dp),
                     contentScale = ContentScale.Fit,
@@ -144,7 +146,7 @@ fun DualPodsCard(
             ) {
                 if (isCollapsed) {
                     Image(
-                        painter = painterResource(if (device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)) R.drawable.popup_pro_hero else device.iconRes),
+                        painter = painterResource(device.model.artwork.hero),
                         contentDescription = null,
                         modifier = Modifier.size(56.dp),
                         contentScale = ContentScale.Fit,
@@ -264,7 +266,7 @@ private fun ColumnScope.DualPodsCardExpanded(
             ) {
                 PodGauge(
                     label = stringResource(R.string.popup_left),
-                    iconRes = if (device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)) R.drawable.popup_pro_earbud else device.leftPodIcon,
+                    iconRes = device.model.artwork.popupLeft,
                     batteryPercent = device.batteryLeft,
                     chargingState = device.leftPodChargingState
                         ?: device.isLeftPodCharging?.let { if (it) AapPodState.ChargingState.CHARGING else null },
@@ -279,8 +281,8 @@ private fun ColumnScope.DualPodsCardExpanded(
 
                 PodGauge(
                     label = stringResource(R.string.popup_right),
-                    iconRes = if (device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)) R.drawable.popup_pro_earbud else device.rightPodIcon,
-                    mirrorIcon = device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3),
+                    iconRes = device.model.artwork.popupRight,
+                    mirrorIcon = device.model.usesProHeroArt,
                     batteryPercent = device.batteryRight,
                     chargingState = device.rightPodChargingState
                         ?: device.isRightPodCharging?.let { if (it) AapPodState.ChargingState.CHARGING else null },
@@ -439,7 +441,7 @@ private fun CaseRow(
                 .batteryTierState(tier),
         ) {
             Image(
-                painter = painterResource(if (device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)) R.drawable.popup_pro_case else device.caseIcon),
+                painter = painterResource(device.model.artwork.popupCase),
                 contentDescription = null,
                 modifier = Modifier.size(28.dp),
             )

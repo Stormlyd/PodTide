@@ -18,11 +18,18 @@ import androidx.compose.ui.unit.dp
 import eu.darken.capod.R
 import eu.darken.capod.common.compose.Preview2
 import eu.darken.capod.common.compose.PreviewWrapper
+import eu.darken.capod.monitor.core.AapStage
 
 @Composable
 internal fun AapUnavailableCard(
+    stage: AapStage = AapStage.NO_SESSION,
     onOpenTracker: () -> Unit = {},
 ) {
+    val stageText = when (stage) {
+        AapStage.OPENING -> R.string.device_settings_aap_stage_opening
+        AapStage.HANDSHAKING -> R.string.device_settings_aap_stage_handshaking
+        else -> R.string.device_settings_aap_stage_waiting
+    }
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -33,6 +40,11 @@ internal fun AapUnavailableCard(
             Text(
                 text = stringResource(R.string.device_settings_aap_unavailable_label),
                 style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = stringResource(stageText),
+                style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(

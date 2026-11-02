@@ -422,6 +422,23 @@ data class PodDevice(
     val isAapReady: Boolean get() = aap?.connectionState == AapPodState.ConnectionState.READY
 
     /**
+     * Where the advanced-control (AAP) channel currently stands. Kept separate from [isLive] so the
+     * UI can say "connected, channel not ready yet" instead of claiming the pods are offline — or
+     * blaming the phone's hardware for a channel that is still being recovered.
+     */
+    val aapStage: AapStage
+        get() {
+            val state = aap
+            return when {
+                state == null -> if (isSystemConnected) AapStage.NO_SESSION else AapStage.NOT_CONNECTED
+                state.connectionState == AapPodState.ConnectionState.READY -> AapStage.READY
+                state.connectionState == AapPodState.ConnectionState.HANDSHAKING -> AapStage.HANDSHAKING
+                state.connectionState == AapPodState.ConnectionState.CONNECTING -> AapStage.OPENING
+                else -> if (isSystemConnected) AapStage.NO_SESSION else AapStage.NOT_CONNECTED
+            }
+        }
+
+    /**
      * Badge key state for the overview card. Profile-stored keys are the source of truth while
      * the device is live: a profile that has an IRK (and optionally ENC) keeps showing those
      * icons whether the current scan happens to include a fresh BLE advertisement or not. For
@@ -438,6 +455,24 @@ data class PodDevice(
 }
 
 enum class BleKeyState { NONE, IRK_ONLY, IRK_AND_ENCRYPTED }
+
+/** Recovery stage of the advanced-control channel; see [PodDevice.aapStage]. */
+enum class AapStage {
+    /** Channel is usable. */
+    READY,
+
+    /** Socket is being opened. */
+    OPENING,
+
+    /** Socket is open, handshake not finished. */
+    HANDSHAKING,
+
+    /** The system reports the pods connected, but no AAP session exists (recovering or failed). */
+    NO_SESSION,
+
+    /** No system connection at all. */
+    NOT_CONNECTED,
+}
 
 data class ConnectionState(
     val hasBleData: Boolean,

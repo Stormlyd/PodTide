@@ -192,6 +192,9 @@ class DeviceSettingsViewModelTest : BaseTest() {
         nudgeCapabilityStore = nudgeCapabilityStore,
         timeSource = timeSource,
         webpageTool = mockk(relaxed = true),
+        companionPresence = mockk(relaxed = true) {
+            every { associatedAddresses } returns MutableStateFlow(emptySet())
+        },
     ).also { vm = it }
 
     private fun runVmTest(testBody: suspend TestScope.() -> Unit) = runTest(testDispatcher) {

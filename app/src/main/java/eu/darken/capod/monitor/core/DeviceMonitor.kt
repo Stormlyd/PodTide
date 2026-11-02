@@ -170,7 +170,11 @@ class DeviceMonitor @Inject constructor(
             .mapNotNull { profile ->
                 val cached = cachedStates[profile.id]
                 val aap = aapStates.forProfile(profile)
-                if (cached == null && aap == null) return@mapNotNull null
+                val isSystemConnected = profile.address in connectedAddresses
+                // A profile the system itself reports as connected is a real, configured device even
+                // when no BLE data and no AAP session exist. Dropping it here made the card vanish for
+                // the whole time the control channel was recovering (audio kept working).
+                if (cached == null && aap == null && !isSystemConnected) return@mapNotNull null
                 PodDevice(
                     profileId = profile.id,
                     label = profile.label,
@@ -188,29 +192,11 @@ class DeviceMonitor @Inject constructor(
                 )
             }
 
-        // De-dupe: if a synthesized non-live device with active AAP shares its model with
-        // an anonymous (profileId == null) BLE pod, the anonymous pod is most likely the
-        // same physical AirPods — the IRK match failed (e.g. wrong identity key, or keys
-        // haven't propagated yet). Hide the anonymous BLE pod to avoid two cards for the
-        // same device. Best-effort: model match only — BLE addresses are RPAs and can't
-        // be matched directly.
-        val nonLiveAapModels = nonLiveDevices
-            .filter { it.aap != null }
-            .map { it.model }
-            .filter { it != PodModel.UNKNOWN }
-            .toSet()
-        val dedupedLiveDevices = if (nonLiveAapModels.isEmpty()) {
-            profileDedupedLive
-        } else {
-            val seenAnonymousModels = mutableSetOf<PodModel>()
-            profileDedupedLive.filter { device ->
-                val isAnonymous = device.profileId == null
-                val matchesNonLive = device.model in nonLiveAapModels
-                // Hide at most one anonymous BLE pod per non-live AAP model so a second
-                // physical device of the same model isn't accidentally hidden.
-                !(isAnonymous && matchesNonLive && seenAnonymousModels.add(device.model))
-            }
-        }
+        // De-dupe by verified identity only. Same-model devices are NOT collapsed: an anonymous
+        // BLE pod that happens to share the model of a non-live profile may be a different pair
+        // (a second set of the same model), and hiding it made that pair undiscoverable. The
+        // IRK-based dedupe above is the only place allowed to collapse pods.
+        val dedupedLiveDevices = profileDedupedLive
 
         dedupedLiveDevices + nonLiveDevices
     }.replayingShare(appScope)

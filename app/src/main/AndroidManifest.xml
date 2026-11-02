@@ -39,6 +39,11 @@
         android:usesPermissionFlags="neverForLocation"
         tools:ignore="UnusedAttribute" />
 
+    <!-- Companion-device association: lets the system wake us when a paired pod appears. -->
+    <uses-permission android:name="android.permission.REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE" />
+    <uses-permission android:name="android.permission.REQUEST_COMPANION_RUN_IN_BACKGROUND" />
+    <uses-permission android:name="android.permission.REQUEST_COMPANION_START_FOREGROUND_SERVICES_FROM_BACKGROUND" />
+
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
@@ -173,6 +178,20 @@
             android:name=".monitor.core.worker.MonitorService"
             android:foregroundServiceType="connectedDevice"
             android:exported="false" />
+
+        <!--
+            Bound by the system when an associated pod appears, including when our process was
+            killed. This is the only wake-up path that survives process death; the monitor start it
+            requests still goes through MonitorControl, so a user who disabled monitoring stays off.
+        -->
+        <service
+            android:name=".monitor.core.companion.MonitorCompanionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_COMPANION_DEVICE_SERVICE">
+            <intent-filter>
+                <action android:name="android.companion.CompanionDeviceService" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".main.ui.tile.AncTileService"

@@ -2,6 +2,9 @@ package eu.darken.capod.main.ui.devicesettings
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.twotone.ArrowBack
+import androidx.compose.material.icons.twotone.BluetoothConnected
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +48,7 @@ import eu.darken.capod.common.compose.preview.MockPodDataProvider
 import eu.darken.capod.common.error.ErrorEventHandler
 import eu.darken.capod.common.navigation.NavigationEventHandler
 import eu.darken.capod.common.settings.SettingsInfoBox
+import eu.darken.capod.common.settings.SettingsPreferenceItem
 import eu.darken.capod.common.settings.SettingsSection
 import eu.darken.capod.main.ui.devicesettings.cards.AapUnavailableCard
 import eu.darken.capod.main.ui.devicesettings.cards.BatteryCard
@@ -104,6 +109,13 @@ fun DeviceSettingsScreenHost(
     val chargeCapRejectedMessage = stringResource(R.string.device_settings_charge_cap_rejected_message)
     val customEqRejectedMessage = stringResource(R.string.custom_eq_not_confirmed)
     val pendingInfoMessage = stringResource(R.string.device_settings_pending_info)
+    val companionCreatedMessage = stringResource(R.string.settings_companion_wake_created)
+
+    // The system sometimes wants its association confirmation dialog launched by an Activity; the
+    // ViewModel hands us the IntentSender and we start it from here.
+    val companionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { /* result is reported through the CompanionDeviceManager callback */ }
 
     val hasPendingSettings = state?.device?.hasPendingSettings
     var lastPendingState by remember { mutableStateOf<Boolean?>(null) }
@@ -147,6 +159,25 @@ fun DeviceSettingsScreenHost(
 
                 DeviceSettingsViewModel.Event.CustomEqNotConfirmedByDevice -> {
                     snackbarHostState.showSnackbar(customEqRejectedMessage)
+                }
+
+                is DeviceSettingsViewModel.Event.CompanionConfirmationRequired -> {
+                    companionLauncher.launch(
+                        IntentSenderRequest.Builder(event.intentSender).build()
+                    )
+                }
+
+                DeviceSettingsViewModel.Event.CompanionAssociationCreated -> {
+                    snackbarHostState.showSnackbar(companionCreatedMessage)
+                }
+
+                is DeviceSettingsViewModel.Event.CompanionAssociationFailed -> {
+                    snackbarHostState.showSnackbar(
+                        resources.getString(
+                            R.string.settings_companion_wake_failed,
+                            event.reason ?: "",
+                        ),
+                    )
                 }
             }
         }
@@ -210,6 +241,7 @@ fun DeviceSettingsScreenHost(
         onOpenAapTracker = { vm.openAapCompatibilityTracker() },
         onBatteryEstimateEnabledChange = { vm.setBatteryEstimateEnabled(it) },
         onResetBatteryEstimate = { vm.resetBatteryEstimate() },
+        onAssociateCompanion = { vm.associateCompanion() },
     )
 }
 
@@ -263,6 +295,7 @@ fun DeviceSettingsScreen(
     onHeadGestureConfigChange: (HeadGestureConfig) -> Unit = {},
     onHeartRateClick: () -> Unit = {},
     onHeadPreviewClick: () -> Unit = {},
+    onAssociateCompanion: () -> Unit = {},
 ) {
     val device = state.device
     val features = device?.model?.features
@@ -576,6 +609,34 @@ fun DeviceSettingsScreen(
                     }
                 }
 
+                // ── System wake-up ────────────────────────────
+                // The only background path that survives process death: the system binds us when
+                // this pod appears. Association is a one-time system dialog.
+                item("companion_section") {
+                    SettingsSection {
+                        SettingsPreferenceItem(
+                            icon = Icons.TwoTone.BluetoothConnected,
+                            title = stringResource(R.string.settings_companion_wake_label),
+                            subtitle = when {
+                                !state.isCompanionSupported ->
+                                    stringResource(R.string.settings_companion_wake_unsupported)
+
+                                state.isCompanionAssociated ->
+                                    stringResource(R.string.settings_companion_wake_associated)
+
+                                else -> stringResource(R.string.settings_companion_wake_description)
+                            },
+                            value = if (state.isCompanionSupported && !state.isCompanionAssociated) {
+                                stringResource(R.string.settings_companion_wake_action)
+                            } else {
+                                null
+                            },
+                            enabled = state.isCompanionSupported && !state.isCompanionAssociated,
+                            onClick = onAssociateCompanion,
+                        )
+                    }
+                }
+
                 // PME Config visualization (debug only, opcode 0x53).
                 // PME = Personal Medical Equipment (hearing-aid band gains for iOS
                 // 18.1+ AirPods Pro 2 hearing-aid mode). The bar chart reuses the
@@ -599,13 +660,14 @@ fun DeviceSettingsScreen(
                 }
             }
 
-            // Advanced settings unavailable — phone's Bluetooth lacks AAP support; passive info, shown last
+            // Advanced control channel not usable right now. Deliberately NOT gated on live BLE data:
+            // once the pods are system-connected the scan stops, and requiring BLE here was exactly
+            // why the reason disappeared together with the feature.
             if (device != null && device.hasSelectedPairedDevice &&
-                device.ble != null && !device.isAapConnected && device.address != null &&
-                state.isClassicallyConnected
+                state.isClassicallyConnected && !device.isAapReady
             ) {
                 item("aap_unavailable_info") {
-                    AapUnavailableCard(onOpenTracker = onOpenAapTracker)
+                    AapUnavailableCard(stage = device.aapStage, onOpenTracker = onOpenAapTracker)
                 }
             }
 

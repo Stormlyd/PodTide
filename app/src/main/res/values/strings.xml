@@ -65,6 +65,14 @@
     <string name="settings_popup_status_label">Earbud status popup</string>
     <string name="settings_popup_status_description">Show a battery popup when the case opens or the earbuds newly connect. It is not repeated while they stay connected.</string>
     <string name="settings_popup_info_not_in_app">Popups are only shown when you are not in the app.</string>
+    <string name="settings_companion_wake_label">System wake-up (experimental)</string>
+    <string name="settings_companion_wake_description">Asks the system to wake PodTide when this device appears, even after the app process was killed. Requires a one-time system confirmation. Android 13+ only; manufacturer battery policy can still delay or block it.</string>
+    <string name="settings_companion_wake_associated">Associated</string>
+    <string name="settings_companion_wake_not_associated">Not associated</string>
+    <string name="settings_companion_wake_action">Associate</string>
+    <string name="settings_companion_wake_unsupported">Requires Android 13 or newer</string>
+    <string name="settings_companion_wake_created">Associated. The system can now wake PodTide.</string>
+    <string name="settings_companion_wake_failed">Association failed: %1$s</string>
     <string name="settings_charged_notification_label">Charged notification</string>
     <string name="settings_charged_notification_description">Show a notification once everything that is charging reaches the target charge level.</string>
     <string name="settings_charged_threshold_label">Target charge level</string>
@@ -484,7 +492,10 @@
     <string name="device_settings_not_nearby_label">Device not nearby</string>
     <string name="device_settings_not_nearby_description">Settings are only available when this device is nearby and connected to your phone.</string>
     <string name="device_settings_aap_unavailable_label">Advanced settings unavailable</string>
-    <string name="device_settings_aap_unavailable_description">Advanced AirPods settings require a Bluetooth feature that is not available on this phone. This may be resolved by a future Android update from your device manufacturer.</string>
+        <string name="device_settings_aap_unavailable_description">Advanced AirPods settings need the earbuds\' control channel (AAP), which is not open right now. If it never opens, your phone\'s Bluetooth implementation may not support it — the tracker shows what is known.</string>
+    <string name="device_settings_aap_stage_waiting">The phone is connected to the earbuds, but the control channel has not been established yet. It may still be recovering after a drop, or the handshake timed out.</string>
+    <string name="device_settings_aap_stage_opening">Opening the control channel…</string>
+    <string name="device_settings_aap_stage_handshaking">Handshake with the earbuds in progress…</string>
     <string name="device_settings_aap_unavailable_action">View compatibility tracker</string>
     <string name="device_settings_category_sound_label">Sound</string>
     <string name="device_settings_category_controls_label">Controls</string>

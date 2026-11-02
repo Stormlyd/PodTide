@@ -59,6 +59,14 @@
     <string name="settings_popup_status_label">耳机状态弹窗</string>
     <string name="settings_popup_status_description">打开耳机盒或耳机新连接时显示电量弹窗，持续连接期间不重复显示。</string>
     <string name="settings_popup_info_not_in_app">仅在你未打开本应用时显示弹窗。</string>
+    <string name="settings_companion_wake_label">系统后台唤醒（实验）</string>
+    <string name="settings_companion_wake_description">让系统在这台耳机出现时唤醒 PodTide，即使应用进程已被清理。需要一次性系统确认，仅 Android 13 及以上可用；厂商省电策略仍可能延迟或拦截。</string>
+    <string name="settings_companion_wake_associated">已关联</string>
+    <string name="settings_companion_wake_not_associated">未关联</string>
+    <string name="settings_companion_wake_action">关联</string>
+    <string name="settings_companion_wake_unsupported">需要 Android 13 或更高版本</string>
+    <string name="settings_companion_wake_created">已关联，系统现在可以唤醒 PodTide。</string>
+    <string name="settings_companion_wake_failed">关联失败：%1$s</string>
     <string name="settings_charged_notification_label">达到目标电量通知</string>
     <string name="settings_charged_notification_description">正在充电的设备全部达到目标电量后，显示通知。</string>
     <string name="settings_charged_threshold_label">目标电量</string>
@@ -414,7 +422,10 @@
     <string name="device_settings_not_nearby_label">设备不在附近</string>
     <string name="device_settings_not_nearby_description">设备在附近并连接到手机后，才能使用设置。</string>
     <string name="device_settings_aap_unavailable_label">高级设置不可用</string>
-    <string name="device_settings_aap_unavailable_description">AirPods 高级设置需要一项蓝牙功能，而这部手机目前不支持。设备制造商今后的 Android 更新可能会解决此问题。</string>
+        <string name="device_settings_aap_unavailable_description">AirPods 高级设置需要耳机的高级控制通道（AAP），当前没有打开。若始终无法打开，可能是手机的蓝牙实现不支持，具体见兼容性进度。</string>
+    <string name="device_settings_aap_stage_waiting">手机已连接耳机，但高级控制通道尚未建立。可能正在自动恢复，或握手超时。</string>
+    <string name="device_settings_aap_stage_opening">正在建立高级控制通道…</string>
+    <string name="device_settings_aap_stage_handshaking">正在与耳机握手…</string>
     <string name="device_settings_aap_unavailable_action">查看兼容性进度</string>
     <string name="device_settings_category_sound_label">声音</string>
     <string name="device_settings_category_controls_label">控制</string>

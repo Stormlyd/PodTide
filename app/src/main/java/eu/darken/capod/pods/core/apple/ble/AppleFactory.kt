@@ -104,28 +104,65 @@ class AppleFactory @Inject constructor(
             )
         }
 
+        var matchReason = if (isIrkMatch) MatchReason.IRK_MATCH else MatchReason.NO_IRK_MATCH
+
         if (profile == null) {
             val tempDevice = factory.create(
                 scanResult = scanResult,
                 payload = payload,
                 meta = ApplePods.AppleMeta(),
             )
-            profile = profiles
+            // Legacy weak match for profiles without an identity key. Identity is NOT verified
+            // here, so it must stay unambiguous: with several same-model keyless profiles the pod
+            // is left unmatched ("not linked to a profile") instead of being handed to whichever
+            // one happens to sort first.
+            val keylessCandidates = profiles
                 .filter { it.identityKey == null }
                 .filter { it.model == PodModel.UNKNOWN || it.model == tempDevice.model }
-                .firstOrNull { it.minimumSignalQuality <= tempDevice.signalQuality }
+                .filter { it.minimumSignalQuality <= tempDevice.signalQuality }
 
-            if (profile == null) {
-                val legacyCandidate = profiles
-                    .filter { it.identityKey != null && (it.model == PodModel.UNKNOWN || it.model == tempDevice.model) }
-                    .firstOrNull { it.minimumSignalQuality <= tempDevice.signalQuality }
-                if (legacyCandidate != null) {
+            profile = when {
+                keylessCandidates.size == 1 -> {
+                    matchReason = MatchReason.WEAK_MODEL_ONLY
+                    keylessCandidates.first()
+                }
+
+                keylessCandidates.size > 1 -> {
+                    matchReason = MatchReason.AMBIGUOUS_SAME_MODEL
                     log(TAG, WARN) {
-                        "Keyed profile ${legacyCandidate.id} would match via old fallback, " +
-                            "its key resolved neither address order"
+                        "${keylessCandidates.size} keyless profiles share model ${tempDevice.model}; " +
+                            "leaving ${scanResult.logSummary()} unmatched instead of guessing an owner."
                     }
+                    null
+                }
+
+                else -> {
+                    val legacyCandidate = profiles
+                        .filter { it.identityKey != null && (it.model == PodModel.UNKNOWN || it.model == tempDevice.model) }
+                        .firstOrNull { it.minimumSignalQuality <= tempDevice.signalQuality }
+                    if (legacyCandidate != null) {
+                        matchReason = MatchReason.IRK_KEY_UNRESOLVED
+                        log(TAG, WARN) {
+                            "Keyed profile ${legacyCandidate.id} would match via old fallback, " +
+                                "its key resolved neither address order"
+                        }
+                    } else if (profiles.isEmpty()) {
+                        matchReason = MatchReason.NO_PROFILES
+                    } else if (profiles.none { it.identityKey != null }) {
+                        matchReason = MatchReason.MODEL_MISMATCH
+                    } else {
+                        matchReason = MatchReason.MODEL_OR_SIGNAL_MISMATCH
+                    }
+                    null
                 }
             }
+        }
+
+        // One structured line per created pod: enough to diagnose identity problems from a bug
+        // report without dumping keys, raw packets or rotating addresses.
+        log(TAG) {
+            "Identity reason=$matchReason model=${"${factory.javaClass.simpleName}"} profiles=${profiles.size} " +
+                "matchedProfile=${profile?.id} irkMatch=$isIrkMatch"
         }
 
         val device = factory.create(
@@ -150,6 +187,22 @@ class AppleFactory @Inject constructor(
         }
 
         device
+    }
+
+    /**
+     * Why a scanned pod was, or was not, attached to a configured profile. Diagnostics only: it is
+     * logged once per created pod so a bug report can tell "no key", "key did not resolve" and
+     * "model-only fallback" apart without exposing keys or raw packets.
+     */
+    internal enum class MatchReason {
+        IRK_MATCH,
+        NO_IRK_MATCH,
+        WEAK_MODEL_ONLY,
+        AMBIGUOUS_SAME_MODEL,
+        IRK_KEY_UNRESOLVED,
+        NO_PROFILES,
+        MODEL_MISMATCH,
+        MODEL_OR_SIGNAL_MISMATCH,
     }
 
     companion object {

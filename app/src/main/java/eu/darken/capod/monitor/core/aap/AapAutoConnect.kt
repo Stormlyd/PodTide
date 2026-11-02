@@ -1,19 +1,21 @@
 package eu.darken.capod.monitor.core.aap
 
+import eu.darken.capod.common.bluetooth.BluetoothDevice2
 import eu.darken.capod.common.bluetooth.BluetoothManager2
 import eu.darken.capod.common.debug.logging.Logging.Priority.VERBOSE
 import eu.darken.capod.common.debug.logging.Logging.Priority.WARN
 import eu.darken.capod.common.debug.logging.log
 import eu.darken.capod.common.debug.logging.logTag
 import eu.darken.capod.common.flow.setupCommonEventHandlers
-import eu.darken.capod.monitor.core.ble.BlePodMonitor
 import eu.darken.capod.pods.core.apple.PodModel
 import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
 import eu.darken.capod.pods.core.apple.aap.AapDisconnectEvent
 import eu.darken.capod.pods.core.apple.aap.AapPodState
 import eu.darken.capod.profiles.core.AppleDeviceProfile
+import eu.darken.capod.profiles.core.DeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfilesRepo
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -21,29 +23,45 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Duration.Companion.seconds
 
+/**
+ * Keeps the AAP control channel of *already system-connected* Apple pods alive.
+ *
+ * The recovery loop is a single per-address task driven by the current state of
+ * profiles + system connections + bonded devices + AAP state, so:
+ *
+ * - The initial connect after a service start and the reconnect after an AAP drop share one
+ *   scheduler; two entry points can never race to build a socket to the same address.
+ * - Recovery keeps going for as long as the target still qualifies (configured, bonded and
+ *   system-connected). It does not stop after a fixed number of attempts, and it does not
+ *   require the target to be visible over BLE: once the system is connected the pods may stop
+ *   advertising entirely, which used to abort every recovery attempt.
+ * - Success is defined by the AAP state reaching [AapPodState.ConnectionState.READY], not by
+ *   [AapConnectionManager.connect] returning (that only means the socket/handshake was started).
+ * - Cancelling the collector (user stops monitoring, service stops, Bluetooth turns off) cancels
+ *   every recovery task; losing one of the preconditions cancels just that address.
+ */
 @Singleton
 class AapAutoConnect @Inject constructor(
     private val aapManager: AapConnectionManager,
     private val profilesRepo: DeviceProfilesRepo,
     private val bluetoothManager: BluetoothManager2,
-    private val blePodMonitor: BlePodMonitor,
 ) {
-    private val activeReconnects = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private val processedModelCorrections = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     /**
-     * Per-address count of consecutive connection attempts that never reached READY (failed socket
-     * connects and handshake-timeout disconnects). Drives the escalating reconnect cooldown so a
-     * device that keeps stalling its handshake in a crowded RF environment doesn't churn a tight
-     * reconnect loop. Reset to 0 once a session works (a was-ready disconnect) or the device leaves.
+     * Per-address count of consecutive attempts that never reached READY (failed socket connects and
+     * handshake-timeout disconnects). Drives the escalating recovery cooldown so a device that keeps
+     * stalling its handshake in a crowded RF environment doesn't churn a tight reconnect loop.
+     * Reset to 0 once a session works (a was-ready disconnect), the system re-connects the device, or
+     * the device leaves.
      */
     private val preReadyFailures = ConcurrentHashMap<String, Int>()
 
@@ -55,185 +73,153 @@ class AapAutoConnect @Inject constructor(
     }
 
     fun monitor(): Flow<Unit> = merge(
-        initialConnect(),
-        reconnectOnDisconnect(),
+        recoveryDriver(),
+        penaltyTracker(),
         correctModelOnDeviceInfo(),
     )
 
-    private fun initialConnect(): Flow<Unit> = combine(
-        profilesRepo.profiles,
-        bluetoothManager.connectedDevices,
-    ) { profiles, connectedDevices ->
-        val connectedAddresses = connectedDevices.map { it.address }.toSet()
-        profiles.filter { it.address in connectedAddresses }
-    }
-        .mapLatest { profiles ->
-            val bondedDevices = bluetoothManager.bondedDevices().first()
+    private data class RecoveryInput(
+        val profiles: List<DeviceProfile>,
+        val connectedDevices: List<BluetoothDevice2>,
+        val bondedDevices: Set<BluetoothDevice2>,
+        val states: Map<String, AapPodState>,
+    )
 
-            coroutineScope {
-                for (profile in profiles) {
-                    launch { connectWithRetries(profile, bondedDevices) }
-                }
-            }
-        }
-        .setupCommonEventHandlers(TAG) { "initialConnect" }
-
-    private suspend fun connectWithRetries(
-        profile: eu.darken.capod.profiles.core.DeviceProfile,
-        bondedDevices: Set<eu.darken.capod.common.bluetooth.BluetoothDevice2>,
-    ) {
-        val address = profile.address ?: return
-        val bonded = bondedDevices.firstOrNull { it.address == address } ?: return
-
-        val currentState = aapManager.allStates.value[address]
-        if (currentState != null && currentState.connectionState != AapPodState.ConnectionState.DISCONNECTED) {
-            log(TAG, VERBOSE) { "AAP already connected/connecting to $address" }
-            return
-        }
-
-        // Escalating cooldown carried over from prior failed attempts (socket failures or handshake
-        // stalls). 0 on the first attempt so a healthy device connects without delay.
-        val cooldown = cooldownFor(address)
-        if (cooldown > 0) {
-            log(TAG) { "AAP initial connect cooldown ${cooldown}ms for $address (failures=${preReadyFailures[address]})" }
-            delay(cooldown)
-        }
-
-        log(TAG) { "AAP connecting to $address (${profile.label})" }
+    /**
+     * Declarative driver: on every state change it reconciles the set of recovery tasks with the set
+     * of addresses that currently qualify, then lets each task run until the address stops qualifying
+     * or reaches READY.
+     */
+    private fun recoveryDriver(): Flow<Unit> = channelFlow<Unit> {
+        val jobs = mutableMapOf<String, Job>()
+        var lastConnected: Set<String> = emptySet()
         try {
-            aapManager.connect(address, bonded.internal!!, profile.model)
-            log(TAG) { "AAP connected to $address" }
-            return
-        } catch (e: Exception) {
-            log(TAG, WARN) { "AAP initial connect failed for $address: ${e.message}" }
+            combine(
+                profilesRepo.profiles,
+                bluetoothManager.connectedDevices,
+                bluetoothManager.bondedDevices(),
+                aapManager.allStates,
+            ) { profiles, connectedDevices, bondedDevices, states ->
+                RecoveryInput(profiles, connectedDevices, bondedDevices, states)
+            }.collect { input ->
+                val connected = input.connectedDevices.map { it.address }.toSet()
 
-            for ((attempt, delayMs) in RETRY_DELAYS.withIndex()) {
-                delay(delayMs)
-
-                // Bail out if classic BT disconnected — device left, clear the penalty
-                val currentConnected = bluetoothManager.connectedDevices.first().map { it.address }.toSet()
-                if (address !in currentConnected) {
-                    log(TAG) { "AAP initial retry: $address no longer classically connected, stopping" }
+                // A fresh system connection (the user just put the pods in / opened the lid) is a new
+                // session: drop the penalty so recovery reacts immediately instead of waiting out an
+                // escalated cooldown earned by an earlier, unrelated outage.
+                (connected - lastConnected).forEach { address ->
                     preReadyFailures.remove(address)
-                    return
                 }
+                lastConnected = connected
 
-                val retryState = aapManager.allStates.value[address]
-                if (retryState != null && retryState.connectionState != AapPodState.ConnectionState.DISCONNECTED) {
-                    log(TAG) { "AAP initial retry: $address already reconnected, stopping" }
-                    return
+                val bonded = input.bondedDevices.associateBy { it.address }
+                val targets = input.profiles
+                    .filter { profile ->
+                        val address = profile.address
+                        !address.isNullOrBlank() &&
+                            address in connected &&
+                            address in bonded &&
+                            input.states[address]?.connectionState != AapPodState.ConnectionState.READY
+                    }
+                    .associateBy { it.address!! }
+
+                jobs.keys.filter { it !in targets.keys }.forEach { address ->
+                    jobs.remove(address)?.cancel()
                 }
-
-                try {
-                    log(TAG) { "AAP initial retry ${attempt + 1} for $address after ${delayMs}ms" }
-                    aapManager.connect(address, bonded.internal!!, profile.model)
-                    log(TAG) { "AAP connected to $address on retry ${attempt + 1}" }
-                    return
-                } catch (retryException: Exception) {
-                    log(TAG, WARN) { "AAP initial retry ${attempt + 1} failed for $address: ${retryException.message}" }
+                targets.forEach { (address, profile) ->
+                    if (jobs[address]?.isActive != true) {
+                        val device = bonded[address] ?: return@forEach
+                        jobs[address] = launch { recover(address, profile, device) }
+                    }
                 }
             }
-
-            // Every attempt this episode failed at the socket level — escalate the next round's cooldown.
-            preReadyFailures.merge(address, 1, Int::plus)
+        } finally {
+            jobs.values.forEach { it.cancel() }
+            jobs.clear()
         }
-    }
+    }.setupCommonEventHandlers(TAG) { "recovery" }
 
-    // Process each disconnect on its own child coroutine so a long per-address backoff never blocks
-    // another device's reconnect (the collector would otherwise serialise events). channelFlow gives
-    // us a scope to launch into; it intentionally emits nothing — it stays subscribed for its lifetime.
-    private fun reconnectOnDisconnect(): Flow<Unit> = channelFlow<Unit> {
+    /**
+     * Maintains the pre-READY penalty counters only; it never drives connections. A disconnect that
+     * had a working session resets the penalty (prompt recovery), one that never reached READY
+     * escalates it (a stalling handshake must not spin).
+     */
+    private fun penaltyTracker(): Flow<Unit> = channelFlow<Unit> {
         aapManager.disconnectEvents.collect { event ->
-            launch { handleReconnect(event) }
+            if (event.wasEverReady) {
+                preReadyFailures.remove(event.address)
+            } else {
+                preReadyFailures.merge(event.address, 1, Int::plus)
+            }
         }
-    }.setupCommonEventHandlers(TAG) { "reconnect" }
+    }.setupCommonEventHandlers(TAG) { "penalties" }
 
-    private suspend fun handleReconnect(event: AapDisconnectEvent) {
-        val address = event.address
+    private suspend fun recover(
+        address: String,
+        profile: DeviceProfile,
+        bonded: BluetoothDevice2,
+    ) {
+        val bluetoothDevice = bonded.internal ?: return
+        var attempt = 0
 
-        // A session that actually worked resets the penalty (prompt reconnect). One that never reached
-        // READY is a failed handshake/short session — escalate so a persistent stall backs off.
-        if (event.wasEverReady) {
-            preReadyFailures.remove(address)
-        } else {
-            preReadyFailures.merge(address, 1, Int::plus)
-        }
-
-        if (!activeReconnects.add(address)) {
-            log(TAG, VERBOSE) { "AAP reconnect already in progress for $address, skipping" }
-            return
-        }
-
-        try {
-            // Escalating cooldown before the normal retry cadence when handshakes keep stalling.
+        while (true) {
             val cooldown = cooldownFor(address)
             if (cooldown > 0) {
-                log(TAG) { "AAP reconnect cooldown ${cooldown}ms for $address (failures=${preReadyFailures[address]})" }
+                log(TAG) { "AAP recovery cooldown ${cooldown}ms for $address (preReadyFailures=${preReadyFailures[address]})" }
                 delay(cooldown)
             }
 
-            for ((attempt, delayMs) in RETRY_DELAYS.withIndex()) {
-                delay(delayMs)
-
-                // Check if still profiled
-                val profile = profilesRepo.profiles.first()
-                    .firstOrNull { it.address == address }
-                if (profile == null) {
-                    log(TAG) { "AAP reconnect: $address no longer profiled, stopping" }
-                    preReadyFailures.remove(address)
-                    return
-                }
-
-                // Check if still bonded
-                val bonded = bluetoothManager.bondedDevices().first()
-                    .firstOrNull { it.address == address }
-                if (bonded == null) {
-                    log(TAG) { "AAP reconnect: $address no longer bonded, stopping" }
-                    preReadyFailures.remove(address)
-                    return
-                }
-
-                // Check if still classically connected
-                val currentConnected = bluetoothManager.connectedDevices.first().map { it.address }.toSet()
-                if (address !in currentConnected) {
-                    log(TAG) { "AAP reconnect: $address no longer classically connected, stopping" }
-                    preReadyFailures.remove(address)
-                    return
-                }
-
-                // Check if still visible in BLE
-                val bleDevices = blePodMonitor.devices.first()
-                if (bleDevices.none { it.meta?.profile?.address == address }) {
-                    log(TAG) { "AAP reconnect: $address no longer visible in BLE, stopping" }
-                    preReadyFailures.remove(address)
-                    return
-                }
-
-                // Check if already reconnected (e.g., by initialConnect)
-                val currentState = aapManager.allStates.value[address]
-                if (currentState != null && currentState.connectionState != AapPodState.ConnectionState.DISCONNECTED) {
-                    log(TAG) { "AAP reconnect: $address already reconnected" }
-                    return
-                }
-
-                try {
-                    log(TAG) { "AAP reconnect attempt ${attempt + 1} for $address in ${delayMs}ms" }
-                    aapManager.connect(address, bonded.internal!!, profile.model)
-                    log(TAG) { "AAP reconnected to $address" }
-                    return
-                } catch (e: Exception) {
-                    log(TAG, WARN) { "AAP reconnect attempt ${attempt + 1} failed for $address: ${e.message}" }
-                }
+            if (aapManager.allStates.value[address]?.connectionState == AapPodState.ConnectionState.READY) {
+                log(TAG, VERBOSE) { "AAP recovery already satisfied for $address" }
+                preReadyFailures.remove(address)
+                return
             }
 
-            // Every attempt threw at the socket level (the device is still present but won't accept a
-            // socket) — escalate so we don't hammer it. Mirrors connectWithRetries. Handshake stalls
-            // don't reach here: their reconnect socket succeeds and we return above; they escalate via
-            // the never-ready disconnect event instead.
+            attempt++
+            try {
+                log(TAG) { "AAP recovery attempt $attempt for $address (${profile.label})" }
+                aapManager.connect(address, bluetoothDevice, profile.model)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log(TAG, WARN) { "AAP recovery attempt $attempt failed for $address: ${e.message}" }
+                preReadyFailures.merge(address, 1, Int::plus)
+                continue
+            }
+
+            if (awaitReady(address)) {
+                log(TAG) { "AAP recovery reached READY for $address after $attempt attempt(s)" }
+                preReadyFailures.remove(address)
+                return
+            }
+
+            // The socket was accepted but the handshake never completed (or dropped before READY).
+            // Escalate and try again: the target still qualifies, so recovery must not stop here.
+            log(TAG, WARN) { "AAP recovery attempt $attempt did not reach READY for $address" }
             preReadyFailures.merge(address, 1, Int::plus)
-        } finally {
-            activeReconnects.remove(address)
         }
+    }
+
+    /**
+     * Waits for the AAP state to settle. [AapConnectionManager.connect] returning only means the
+     * connection was started, so READY is the only evidence of a usable control channel.
+     */
+    private suspend fun awaitReady(address: String): Boolean {
+        val states = aapManager.allStates
+            .map { it[address]?.connectionState }
+            .distinctUntilChanged()
+
+        val started = withTimeoutOrNull(START_TIMEOUT_MS) {
+            states.first { it != null && it != AapPodState.ConnectionState.DISCONNECTED }
+        } ?: return false
+        if (started == AapPodState.ConnectionState.READY) return true
+
+        val settled = withTimeoutOrNull(READY_TIMEOUT_MS) {
+            states.first {
+                it == AapPodState.ConnectionState.READY || it == AapPodState.ConnectionState.DISCONNECTED
+            }
+        }
+        return settled == AapPodState.ConnectionState.READY
     }
 
     private fun correctModelOnDeviceInfo(): Flow<Unit> = aapManager.allStates
@@ -286,12 +272,17 @@ class AapAutoConnect @Inject constructor(
 
     companion object {
         private val TAG = logTag("Monitor", "AapAutoConnect")
-        internal val RETRY_DELAYS = longArrayOf(3_000, 3_000, 3_000, 5_000, 5_000, 10_000, 10_000)
+
+        /** How long a started connection may stay non-DISCONNECTED before we call it a failed attempt. */
+        internal const val START_TIMEOUT_MS = 3_000L
+
+        /** How long a started handshake may take to reach READY before we treat it as a failed attempt. */
+        internal const val READY_TIMEOUT_MS = 10_000L
 
         /**
-         * Escalating cooldown (ms) applied before a reconnect/connect attempt, indexed by
-         * consecutive pre-READY failures minus one. Caps at 60s so a device that perpetually stalls
-         * its handshake in crowded RF settles into a slow ~minute cadence instead of a tight loop.
+         * Escalating cooldown (ms) applied before a recovery attempt, indexed by consecutive
+         * pre-READY failures minus one. Caps at 60s so a device that perpetually stalls its handshake
+         * in crowded RF settles into a slow ~minute cadence instead of a tight loop.
          */
         internal val HANDSHAKE_BACKOFF = longArrayOf(5_000, 15_000, 30_000, 60_000)
     }

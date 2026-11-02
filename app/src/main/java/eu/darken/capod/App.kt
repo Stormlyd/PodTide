@@ -24,6 +24,7 @@ import eu.darken.capod.monitor.core.battery.BatteryEstimator
 import eu.darken.capod.monitor.core.battery.displayKey
 import eu.darken.capod.monitor.core.battery.estimateFor
 import eu.darken.capod.monitor.core.ble.MonitorWakeScan
+import eu.darken.capod.monitor.core.companion.CompanionPresence
 
 import eu.darken.capod.monitor.core.devicesWithProfiles
 
@@ -51,6 +52,7 @@ open class App : Application(), Configuration.Provider {
     @Inject lateinit var upgradeRepo: UpgradeRepo
     @Inject lateinit var batteryEstimator: BatteryEstimator
     @Inject lateinit var wakeScan: MonitorWakeScan
+    @Inject lateinit var companionPresence: CompanionPresence
     @Inject @AppScope lateinit var appScope: CoroutineScope
 
     override fun onCreate() {
@@ -87,6 +89,11 @@ open class App : Application(), Configuration.Provider {
         // persisted user intent itself, so a process start never resumes monitoring the user
         // switched off, and a running session suppresses it to avoid duplicate scans.
         wakeScan.ensureRegistered()
+
+        // Re-arm the system-managed companion presence observation on every process start. After
+        // the user associated a pod once, this is what lets the platform bind us on the next
+        // appearance even though everything else in this process is gone.
+        appScope.launch { companionPresence.syncObservation() }
 
         combine(
             deviceMonitor.devicesWithProfiles(),

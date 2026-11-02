@@ -19,6 +19,7 @@ import eu.darken.capod.common.uix.ViewModel4
 import eu.darken.capod.common.upgrade.UpgradeRepo
 import eu.darken.capod.common.upgrade.isProForUi
 import eu.darken.capod.main.core.MonitorMode
+import eu.darken.capod.monitor.core.companion.CompanionPresence
 import eu.darken.capod.monitor.core.DeviceMonitor
 import eu.darken.capod.monitor.core.MonitorModeResolver
 import eu.darken.capod.monitor.core.PodDevice
@@ -68,6 +69,7 @@ class DeviceSettingsViewModel @Inject constructor(
     private val nudgeCapabilityStore: NudgeCapabilityStore,
     private val timeSource: TimeSource,
     private val webpageTool: WebpageTool,
+    private val companionPresence: CompanionPresence,
 ) : ViewModel4(dispatcherProvider) {
 
     private val targetProfileId = MutableStateFlow<ProfileId?>(null)
@@ -98,11 +100,22 @@ class DeviceSettingsViewModel @Inject constructor(
         data object AncModeNotConfirmedByDevice : Event
         data object DynamicEndOfChargeRejectedByDevice : Event
         data object CustomEqNotConfirmedByDevice : Event
+
+        /**
+         * The system wants our Activity to launch its association confirmation dialog. The sender
+         * must be launched by the screen, a ViewModel cannot start it.
+         */
+        data class CompanionConfirmationRequired(val intentSender: android.content.IntentSender) : Event
+        data class CompanionAssociationFailed(val reason: String?) : Event
+        data object CompanionAssociationCreated : Event
     }
 
     val events = SingleEventFlow<Event>()
 
     init {
+        // The association list lives in the system; re-read it whenever the screen is opened so a
+        // revoked association is not still shown as armed.
+        companionPresence.refreshAssociations()
         launch {
             aapManager.offRejectedEvents.collect { address ->
                 if (address == currentAddress()) {
@@ -142,6 +155,7 @@ class DeviceSettingsViewModel @Inject constructor(
             profilesRepo.profiles,
             nudgeCapabilityStore.availability,
             drainStore.profiles,
+            companionPresence.associatedAddresses,
         ) { args ->
             val device = args[1] as PodDevice?
             val upgrade = args[2] as UpgradeRepo.Info
@@ -157,6 +171,9 @@ class DeviceSettingsViewModel @Inject constructor(
 
             @Suppress("UNCHECKED_CAST")
             val drainProfiles = args[8] as Map<ProfileId, DrainProfile>
+
+            @Suppress("UNCHECKED_CAST")
+            val companionAddresses = args[9] as Set<String>
             val appleProfile = profiles.filterIsInstance<AppleDeviceProfile>()
                 .firstOrNull { it.id == profileId }
             val stemActions = appleProfile?.stemActions
@@ -202,6 +219,8 @@ class DeviceSettingsViewModel @Inject constructor(
                     (appleProfile?.batteryEstimateEnabled ?: true) &&
                     device.model.batterySpec != null &&
                     device.hasSelectedPairedDevice,
+                isCompanionSupported = companionPresence.isSupported,
+                isCompanionAssociated = selectedAddress?.let { it in companionAddresses } == true,
             )
         }
     }.asLiveState()
@@ -239,6 +258,10 @@ class DeviceSettingsViewModel @Inject constructor(
         val batteryHealthPending: Boolean = false,
         val profileModel: eu.darken.capod.pods.core.apple.PodModel? = null,
         val profileLabel: String? = null,
+        /** Whether the OS-level companion wake-up path exists on this device (Android 13+). */
+        val isCompanionSupported: Boolean = false,
+        /** True once the user associated this exact address, which arms the system wake-up. */
+        val isCompanionAssociated: Boolean = false,
     ) {
         val reactions: ReactionConfig get() = device?.reactions ?: ReactionConfig()
     }
@@ -519,6 +542,30 @@ class DeviceSettingsViewModel @Inject constructor(
         proGatedReaction(enabled) {
             it.copy(showPopUpOnCaseOpen = enabled, showPopUpOnConnection = enabled)
         }
+    }
+
+    /**
+     * Starts the one-time system association that allows the OS to wake us when this pod appears,
+     * even if the process was killed. The confirmation dialog, when the system asks for one, is
+     * launched by the screen through [Event.CompanionConfirmationRequired].
+     */
+    fun associateCompanion() = launch {
+        val address = currentAddress() ?: run {
+            log(TAG, WARN) { "associateCompanion: no address for the selected profile" }
+            return@launch
+        }
+        log(TAG, INFO) { "associateCompanion($address)" }
+        companionPresence.associate(
+            address = address,
+            onPending = { intentSender -> events.tryEmit(Event.CompanionConfirmationRequired(intentSender)) },
+            onResult = { success, reason ->
+                if (success) {
+                    events.tryEmit(Event.CompanionAssociationCreated)
+                } else {
+                    events.tryEmit(Event.CompanionAssociationFailed(reason))
+                }
+            },
+        )
     }
 
     fun setNotifyWhenCharged(enabled: Boolean) {

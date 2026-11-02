@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import testhelpers.BaseTest
@@ -484,14 +485,15 @@ class DeviceMonitorTest : BaseTest() {
     }
 
     /**
-     * De-dupe: an anonymous BLE pod (no IRK match) of the same model as a synthesized
-     * AAP-only profile is most likely the same physical device with broken/missing keys.
-     * Hide the anonymous pod to avoid showing two cards.
+     * P2-05: an anonymous BLE pod must never be hidden just because a synthesized profile shares
+     * its model. Model equality is not identity: that anonymous pod may be a different pair of the
+     * same model. Only IRK-verified matches may collapse pods (see the profile-dedup tests below).
      */
     @Test
-    fun `de-dupe - anonymous BLE pod with matching model is hidden`() = runTest(testDispatcher) {
+    fun `de-dupe - anonymous BLE pod with matching model is kept`() = runTest(testDispatcher) {
+        val anonymousPod = mockAnonymousBlePod(PodModel.AIRPODS_PRO2_USBC)
         val monitor = createMonitor(
-            ble = listOf(mockAnonymousBlePod(PodModel.AIRPODS_PRO2_USBC)),
+            ble = listOf(anonymousPod),
             aap = mapOf(testAddress to testAapState),
             cache = emptyMap(),
             profiles = listOf(testProfile),
@@ -500,11 +502,59 @@ class DeviceMonitorTest : BaseTest() {
 
         val devices = monitor.devices.first()
 
-        devices.size shouldBe 1
-        val device = devices.single()
-        device.profileId shouldBe testProfile.id
-        device.isAapConnected shouldBe true
+        devices.size shouldBe 2
+        val anonymous = devices.single { it.profileId == null }
+        anonymous.ble shouldBe anonymousPod
+        val configured = devices.single { it.profileId == testProfile.id }
+        configured.isAapConnected shouldBe true
     }
+
+    /**
+     * P1-03: a configured profile whose control channel is down must keep its card. The system
+     * connection alone proves the device is present; without this the card vanished for exactly
+     * the window in which users look for it (audio working, advanced settings recovering).
+     */
+    @Test
+    fun `configured device stays visible while system connected without BLE, AAP or cache`() =
+        runTest(testDispatcher) {
+            val monitor = createMonitor(
+                ble = emptyList(),
+                aap = emptyMap(),
+                cache = emptyMap(),
+                profiles = listOf(testProfile),
+                connected = listOf(testAddress),
+                scope = backgroundScope,
+            )
+
+            val devices = withTimeout(2_000) { monitor.devices.first { d -> d.any { it.profileId == testProfile.id } } }
+
+            devices.size shouldBe 1
+            val device = devices.single()
+            device.profileId shouldBe testProfile.id
+            device.isSystemConnected shouldBe true
+            // Still not "live": no data source, no fabricated battery or RSSI.
+            device.isLive shouldBe false
+            device.ble shouldBe null
+            device.aap shouldBe null
+            device.cached shouldBe null
+            device.isAapReady shouldBe false
+            device.aapStage shouldBe AapStage.NO_SESSION
+        }
+
+    @Test
+    fun `configured device without system connection and without data is not synthesized`() =
+        runTest(testDispatcher) {
+            val monitor = createMonitor(
+                ble = emptyList(),
+                aap = emptyMap(),
+                cache = emptyMap(),
+                profiles = listOf(testProfile),
+                connected = emptyList(),
+                scope = backgroundScope,
+            )
+
+            monitor.devices.first() shouldBe emptyList()
+        }
 
     @Test
     fun `de-dupe - anonymous BLE pod with different model is kept`() = runTest(testDispatcher) {

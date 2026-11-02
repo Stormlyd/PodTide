@@ -48,13 +48,14 @@ import androidx.compose.ui.unit.dp
 import eu.darken.capod.R
 import eu.darken.capod.monitor.core.PodDevice
 import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.usesProHeroArt
 import kotlin.math.roundToInt
 
 /** The production overlay card. Its surface is translucent; it does not sample or blur other apps. */
 @Composable
 fun PopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Modifier, onOpen: () -> Unit = {}) {
     val colors = MaterialTheme.colorScheme
-    val proArtwork = device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)
+    val proArtwork = device.model.usesProHeroArt
     val shape = RoundedCornerShape(30.dp)
     CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
         BoxWithConstraints(modifier.padding(8.dp)) {
@@ -110,7 +111,7 @@ fun PopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Mo
 
 @Composable
 private fun PopupArtwork(device: PodDevice, compact: Boolean) {
-    val pro = device.model in setOf(PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3)
+    val pro = device.model.usesProHeroArt
     val height = if (compact) 100.dp else 182.dp
     if (pro) {
         var revealed by remember { mutableStateOf(false) }

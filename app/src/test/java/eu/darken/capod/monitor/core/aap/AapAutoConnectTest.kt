@@ -1,14 +1,13 @@
 package eu.darken.capod.monitor.core.aap
 
+import android.bluetooth.BluetoothDevice
 import eu.darken.capod.common.bluetooth.BluetoothDevice2
 import eu.darken.capod.common.bluetooth.BluetoothManager2
-import eu.darken.capod.monitor.core.ble.BlePodMonitor
 import eu.darken.capod.pods.core.apple.PodModel
 import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
 import eu.darken.capod.pods.core.apple.aap.AapDisconnectEvent
 import eu.darken.capod.pods.core.apple.aap.AapPodState
 import eu.darken.capod.pods.core.apple.aap.protocol.AapDeviceInfo
-import eu.darken.capod.pods.core.apple.ble.BlePodSnapshot
 import eu.darken.capod.profiles.core.AppleDeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfilesRepo
@@ -17,14 +16,13 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
@@ -32,6 +30,11 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import testhelpers.BaseTest
 
+/**
+ * The recovery driver is an open-ended per-address loop, so tests never use `advanceUntilIdle()`
+ * (it would never return). They advance virtual time in bounded steps and verify the observable
+ * side effects: connect attempts, their cadence and their cancellation.
+ */
 class AapAutoConnectTest : BaseTest() {
 
     private val testDispatcher = UnconfinedTestDispatcher()
@@ -39,27 +42,41 @@ class AapAutoConnectTest : BaseTest() {
     private lateinit var aapManager: AapConnectionManager
     private lateinit var profilesRepo: DeviceProfilesRepo
     private lateinit var bluetoothManager: BluetoothManager2
-    private lateinit var blePodMonitor: BlePodMonitor
 
     private lateinit var profilesFlow: MutableStateFlow<List<DeviceProfile>>
     private lateinit var connectedDevicesFlow: MutableStateFlow<List<BluetoothDevice2>>
+    private lateinit var bondedDevicesFlow: MutableStateFlow<Set<BluetoothDevice2>>
     private lateinit var disconnectEventsFlow: MutableSharedFlow<AapDisconnectEvent>
     private lateinit var allStatesFlow: MutableStateFlow<Map<String, AapPodState>>
 
     private val testAddress = "AA:BB:CC:DD:EE:FF"
+    private val otherAddress = "11:22:33:44:55:66"
+
     private val testProfile = AppleDeviceProfile(
         label = "Test AirPods",
         model = PodModel.AIRPODS_PRO3,
         address = testAddress,
     )
-    private val testBondedDevice: BluetoothDevice2 = mockk(relaxed = true) {
+    private val otherProfile = AppleDeviceProfile(
+        label = "Other AirPods",
+        model = PodModel.AIRPODS_PRO3,
+        address = otherAddress,
+    )
+
+    private val testBondedDevice: BluetoothDevice2 = mockk {
         every { address } returns testAddress
+        every { internal } returns mockk<BluetoothDevice>(relaxed = true)
+    }
+    private val otherBondedDevice: BluetoothDevice2 = mockk {
+        every { address } returns otherAddress
+        every { internal } returns mockk<BluetoothDevice>(relaxed = true)
     }
 
     @BeforeEach
     fun setup() {
         profilesFlow = MutableStateFlow(emptyList())
         connectedDevicesFlow = MutableStateFlow(emptyList())
+        bondedDevicesFlow = MutableStateFlow(setOf(testBondedDevice))
         disconnectEventsFlow = MutableSharedFlow(extraBufferCapacity = 16)
         allStatesFlow = MutableStateFlow(emptyMap())
 
@@ -73,20 +90,8 @@ class AapAutoConnectTest : BaseTest() {
         }
 
         bluetoothManager = mockk {
-            every { bondedDevices() } returns flowOf(setOf(testBondedDevice))
+            every { bondedDevices() } returns bondedDevicesFlow
             every { connectedDevices } returns connectedDevicesFlow
-        }
-
-        val bleMeta = object : BlePodSnapshot.Meta {
-            override val profile = testProfile
-        }
-        blePodMonitor = mockk {
-            every { devices } returns flowOf(
-                listOf(mockk<BlePodSnapshot>(relaxed = true) {
-                    every { address } returns "5A:3B:1C:2D:4E:6F"
-                    every { meta } returns bleMeta
-                })
-            )
         }
     }
 
@@ -94,381 +99,305 @@ class AapAutoConnectTest : BaseTest() {
         aapManager = aapManager,
         profilesRepo = profilesRepo,
         bluetoothManager = bluetoothManager,
-        blePodMonitor = blePodMonitor,
     )
 
+    private fun TestScope.startMonitor(): Job {
+        val job = launch { createAutoConnect().monitor().collect { } }
+        runCurrent()
+        return job
+    }
+
+    private fun aapState(state: AapPodState.ConnectionState) =
+        mapOf(testAddress to AapPodState(connectionState = state))
+
     @Nested
-    inner class InitialConnect {
+    inner class Scheduling {
 
         @Test
-        fun `connects when profiled device is classically connected`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
-
-            connectedDevicesFlow.value = listOf(testBondedDevice)
-            val job = launch { autoConnect.monitor().toList() }
+        fun `connects when the profiled device is system connected`() = runTest(testDispatcher) {
             profilesFlow.value = listOf(testProfile)
-            advanceUntilIdle()
+            connectedDevicesFlow.value = listOf(testBondedDevice)
+
+            val job = startMonitor()
 
             coVerify(exactly = 1) { aapManager.connect(testAddress, any(), PodModel.AIRPODS_PRO3) }
-
             job.cancel()
         }
 
         @Test
-        fun `skips profiles not classically connected`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
-
-            // No classic BT connection
-            val job = launch { autoConnect.monitor().toList() }
+        fun `does not connect while the system connection is missing`() = runTest(testDispatcher) {
             profilesFlow.value = listOf(testProfile)
-            advanceUntilIdle()
 
+            val job = startMonitor()
             coVerify(exactly = 0) { aapManager.connect(any(), any(), any()) }
 
-            job.cancel()
-        }
-
-        @Test
-        fun `skips profiles without address`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
-
-            val noAddressProfile = AppleDeviceProfile(label = "No Address", model = PodModel.AIRPODS_PRO3)
-
             connectedDevicesFlow.value = listOf(testBondedDevice)
-            val job = launch { autoConnect.monitor().toList() }
-            profilesFlow.value = listOf(noAddressProfile)
-            advanceUntilIdle()
-
-            coVerify(exactly = 0) { aapManager.connect(any(), any(), any()) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `skips profiles not in bonded devices`() = runTest(testDispatcher) {
-            every { bluetoothManager.bondedDevices() } returns flowOf(emptySet())
-
-            val autoConnect = createAutoConnect()
-
-            connectedDevicesFlow.value = listOf(testBondedDevice)
-            val job = launch { autoConnect.monitor().toList() }
-            profilesFlow.value = listOf(testProfile)
-            advanceUntilIdle()
-
-            coVerify(exactly = 0) { aapManager.connect(any(), any(), any()) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `skips already connected devices`() = runTest(testDispatcher) {
-            allStatesFlow.value = mapOf(
-                testAddress to AapPodState(connectionState = AapPodState.ConnectionState.READY)
-            )
-
-            val autoConnect = createAutoConnect()
-
-            connectedDevicesFlow.value = listOf(testBondedDevice)
-            val job = launch { autoConnect.monitor().toList() }
-            profilesFlow.value = listOf(testProfile)
-            advanceUntilIdle()
-
-            coVerify(exactly = 0) { aapManager.connect(any(), any(), any()) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `connects when classic Bluetooth connects after service start`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
-
-            // Profiles already set, but no classic BT connection yet
-            profilesFlow.value = listOf(testProfile)
-            val job = launch { autoConnect.monitor().toList() }
-            advanceUntilIdle()
-
-            // Should NOT connect — device not classically connected
-            coVerify(exactly = 0) { aapManager.connect(testAddress, any(), PodModel.AIRPODS_PRO3) }
-
-            // Simulate classic BT connecting later
-            connectedDevicesFlow.value = listOf(testBondedDevice)
-            advanceUntilIdle()
-
-            // Now should attempt connect
-            coVerify(exactly = 1) { aapManager.connect(testAddress, any(), PodModel.AIRPODS_PRO3) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `does not skip disconnected devices`() = runTest(testDispatcher) {
-            allStatesFlow.value = mapOf(
-                testAddress to AapPodState(connectionState = AapPodState.ConnectionState.DISCONNECTED)
-            )
-
-            val autoConnect = createAutoConnect()
-
-            connectedDevicesFlow.value = listOf(testBondedDevice)
-            val job = launch { autoConnect.monitor().toList() }
-            profilesFlow.value = listOf(testProfile)
-            advanceUntilIdle()
+            runCurrent()
 
             coVerify(exactly = 1) { aapManager.connect(testAddress, any(), PodModel.AIRPODS_PRO3) }
+            job.cancel()
+        }
 
+        @Test
+        fun `skips profiles without an address`() = runTest(testDispatcher) {
+            profilesFlow.value = listOf(testProfile.copy(address = null))
+            connectedDevicesFlow.value = listOf(testBondedDevice)
+
+            val job = startMonitor()
+
+            coVerify(exactly = 0) { aapManager.connect(any(), any(), any()) }
+            job.cancel()
+        }
+
+        @Test
+        fun `does not connect when the device is not bonded`() = runTest(testDispatcher) {
+            profilesFlow.value = listOf(testProfile)
+            connectedDevicesFlow.value = listOf(testBondedDevice)
+            bondedDevicesFlow.value = emptySet()
+
+            val job = startMonitor()
+
+            coVerify(exactly = 0) { aapManager.connect(any(), any(), any()) }
+            job.cancel()
+        }
+
+        @Test
+        fun `does not connect when the AAP session is already ready`() = runTest(testDispatcher) {
+            profilesFlow.value = listOf(testProfile)
+            connectedDevicesFlow.value = listOf(testBondedDevice)
+            allStatesFlow.value = aapState(AapPodState.ConnectionState.READY)
+
+            val job = startMonitor()
+
+            coVerify(exactly = 0) { aapManager.connect(any(), any(), any()) }
+            job.cancel()
+        }
+
+        @Test
+        fun `creates exactly one task per address`() = runTest(testDispatcher) {
+            profilesFlow.value = listOf(testProfile, otherProfile)
+            bondedDevicesFlow.value = setOf(testBondedDevice, otherBondedDevice)
+            connectedDevicesFlow.value = listOf(testBondedDevice)
+
+            val job = startMonitor()
+            coVerify(exactly = 1) { aapManager.connect(testAddress, any(), any()) }
+
+            // A second device arriving re-emits the combined state, but must not duplicate the
+            // still-running task for the first address.
+            connectedDevicesFlow.value = listOf(testBondedDevice, otherBondedDevice)
+            runCurrent()
+
+            coVerify(exactly = 1) { aapManager.connect(testAddress, any(), any()) }
+            coVerify(exactly = 1) { aapManager.connect(otherAddress, any(), any()) }
             job.cancel()
         }
     }
 
     @Nested
-    inner class InitialConnectRetry {
+    inner class PersistentRecovery {
 
         @Test
-        fun `retries on initial connect failure then stops`() = runTest(testDispatcher) {
-            coEvery { aapManager.connect(any(), any(), any()) } throws RuntimeException("ACL connection failed")
-
-            val autoConnect = createAutoConnect()
-            connectedDevicesFlow.value = listOf(testBondedDevice)
-            val job = launch { autoConnect.monitor().toList() }
-
-            profilesFlow.value = listOf(testProfile)
-            advanceUntilIdle()
-
-            // 1 initial + 7 retries = 8 total
-            coVerify(exactly = 8) { aapManager.connect(testAddress, any(), PodModel.AIRPODS_PRO3) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `succeeds on second retry`() = runTest(testDispatcher) {
-            var callCount = 0
+        fun `keeps retrying after failed rounds without any external change`() = runTest(testDispatcher) {
+            var attempts = 0
             coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
-                callCount++
-                if (callCount <= 2) throw RuntimeException("ACL connection failed")
+                attempts++
+                throw RuntimeException("socket refused")
             }
 
-            val autoConnect = createAutoConnect()
-            connectedDevicesFlow.value = listOf(testBondedDevice)
-            val job = launch { autoConnect.monitor().toList() }
-
             profilesFlow.value = listOf(testProfile)
-            advanceUntilIdle()
+            connectedDevicesFlow.value = listOf(testBondedDevice)
+            val job = startMonitor()
 
-            // 1 initial fail + 1 retry fail + 1 retry success = 3
-            coVerify(exactly = 3) { aapManager.connect(testAddress, any(), PodModel.AIRPODS_PRO3) }
+            // Round 1 at t=0, then escalating cooldowns 5s, 15s, 30s → 4th attempt at t=50s.
+            advanceTimeBy(50_000)
+            runCurrent()
+            attempts shouldBe 4
 
+            // Nothing external changed: the loop must still be alive and able to recover.
+            coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
+                attempts++
+                allStatesFlow.value = aapState(AapPodState.ConnectionState.CONNECTING)
+            }
+            advanceTimeBy(60_000)
+            runCurrent()
+            attempts shouldBe 5
+
+            allStatesFlow.value = aapState(AapPodState.ConnectionState.READY)
+            runCurrent()
+
+            // Reaching READY ends recovery; no further attempts afterwards.
+            advanceTimeBy(300_000)
+            runCurrent()
+            attempts shouldBe 5
             job.cancel()
         }
 
         @Test
-        fun `stops retry when already reconnected by another path`() = runTest(testDispatcher) {
-            var callCount = 0
+        fun `stops retrying once the handshake reaches READY`() = runTest(testDispatcher) {
+            var attempts = 0
             coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
-                callCount++
-                if (callCount == 1) {
-                    // Simulate another path reconnecting during the delay
-                    allStatesFlow.value = mapOf(
-                        testAddress to AapPodState(connectionState = AapPodState.ConnectionState.READY)
-                    )
-                    throw RuntimeException("ACL connection failed")
-                }
+                attempts++
+                allStatesFlow.value = aapState(AapPodState.ConnectionState.CONNECTING)
             }
 
-            val autoConnect = createAutoConnect()
-            connectedDevicesFlow.value = listOf(testBondedDevice)
-            val job = launch { autoConnect.monitor().toList() }
-
             profilesFlow.value = listOf(testProfile)
-            advanceUntilIdle()
+            connectedDevicesFlow.value = listOf(testBondedDevice)
+            val job = startMonitor()
+            attempts shouldBe 1
 
-            // 1 initial attempt, retries bail out because allStates shows READY
-            coVerify(exactly = 1) { aapManager.connect(testAddress, any(), PodModel.AIRPODS_PRO3) }
+            allStatesFlow.value = aapState(AapPodState.ConnectionState.READY)
+            runCurrent()
 
+            advanceTimeBy(300_000)
+            runCurrent()
+            attempts shouldBe 1
             job.cancel()
         }
 
         @Test
-        fun `stops retry when classic BT disconnects`() = runTest(testDispatcher) {
-            var callCount = 0
+        fun `a socket that never reaches READY is not treated as success`() = runTest(testDispatcher) {
+            var attempts = 0
             coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
-                callCount++
-                if (callCount == 1) {
-                    // Simulate classic BT disconnecting during the retry delay
-                    connectedDevicesFlow.value = emptyList()
-                    throw RuntimeException("ACL connection failed")
-                }
+                attempts++
+                allStatesFlow.value = aapState(AapPodState.ConnectionState.CONNECTING)
             }
 
-            val autoConnect = createAutoConnect()
+            profilesFlow.value = listOf(testProfile)
             connectedDevicesFlow.value = listOf(testBondedDevice)
-            val job = launch { autoConnect.monitor().toList() }
+            val job = startMonitor()
+            attempts shouldBe 1
+
+            // Handshake stalls: after the READY timeout and the first cooldown, a new attempt starts.
+            advanceTimeBy(AapAutoConnect.READY_TIMEOUT_MS)
+            runCurrent()
+            attempts shouldBe 1
+
+            advanceTimeBy(AapAutoConnect.HANDSHAKE_BACKOFF.first())
+            runCurrent()
+            attempts shouldBe 2
+            job.cancel()
+        }
+
+        @Test
+        fun `a fresh system connection clears an escalated cooldown`() = runTest(testDispatcher) {
+            var attempts = 0
+            coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
+                attempts++
+                throw RuntimeException("socket refused")
+            }
 
             profilesFlow.value = listOf(testProfile)
-            advanceUntilIdle()
-
-            // 1 initial attempt, retries bail out because classic BT disconnected
-            coVerify(exactly = 1) { aapManager.connect(testAddress, any(), PodModel.AIRPODS_PRO3) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `does not retry when initial connect succeeds`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
             connectedDevicesFlow.value = listOf(testBondedDevice)
-            val job = launch { autoConnect.monitor().toList() }
+            val job = startMonitor()
 
-            profilesFlow.value = listOf(testProfile)
-            advanceUntilIdle()
+            advanceTimeBy(50_000)
+            runCurrent()
+            attempts shouldBe 4
 
-            // Only 1 call, no retries needed
-            coVerify(exactly = 1) { aapManager.connect(testAddress, any(), PodModel.AIRPODS_PRO3) }
-
-            job.cancel()
-        }
-    }
-
-    @Nested
-    inner class Reconnect {
-
-        /**
-         * For reconnect tests: set the device as "already connected" in allStates
-         * so initialConnect() skips it, then clear allStates before emitting disconnect event.
-         */
-        private fun kotlinx.coroutines.test.TestScope.setupForReconnect(autoConnect: AapAutoConnect): kotlinx.coroutines.Job {
-            // Pre-set as connected so initialConnect doesn't fire for this address
-            allStatesFlow.value = mapOf(
-                testAddress to AapPodState(connectionState = AapPodState.ConnectionState.READY)
-            )
-            connectedDevicesFlow.value = listOf(testBondedDevice)
-            profilesFlow.value = listOf(testProfile)
-            return launch { autoConnect.monitor().toList() }
-        }
-
-        @Test
-        fun `reconnect stops when device no longer profiled`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
-            val job = setupForReconnect(autoConnect)
-            advanceUntilIdle()
-
-            // Clear profiles, then disconnect
-            profilesFlow.value = emptyList()
-            allStatesFlow.value = emptyMap()
-            disconnectEventsFlow.tryEmit(AapDisconnectEvent(testAddress, wasEverReady = true))
-            advanceUntilIdle()
-
-            // The reconnect loop should not call connect since profile is gone
-            coVerify(exactly = 0) { aapManager.connect(testAddress, any(), any()) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `reconnect stops when device no longer bonded`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
-            val job = setupForReconnect(autoConnect)
-            advanceUntilIdle()
-
-            // Remove bonded device, then disconnect
-            every { bluetoothManager.bondedDevices() } returns flowOf(emptySet())
-            allStatesFlow.value = emptyMap()
-            disconnectEventsFlow.tryEmit(AapDisconnectEvent(testAddress, wasEverReady = true))
-            advanceUntilIdle()
-
-            // Reconnect should not call connect since not bonded
-            coVerify(exactly = 0) { aapManager.connect(testAddress, any(), any()) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `reconnect stops when device no longer classically connected`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
-            val job = setupForReconnect(autoConnect)
-            advanceUntilIdle()
-
-            // Remove classic BT connection, then disconnect
+            // Device leaves and comes back: that is a new session, so recovery must react at once
+            // instead of waiting out the 60s cooldown earned by the previous outage.
             connectedDevicesFlow.value = emptyList()
-            allStatesFlow.value = emptyMap()
-            disconnectEventsFlow.tryEmit(AapDisconnectEvent(testAddress, wasEverReady = true))
-            advanceUntilIdle()
+            runCurrent()
+            coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
+                attempts++
+                allStatesFlow.value = aapState(AapPodState.ConnectionState.CONNECTING)
+            }
+            connectedDevicesFlow.value = listOf(testBondedDevice)
 
-            // Reconnect should not call connect since not classically connected
-            coVerify(exactly = 0) { aapManager.connect(testAddress, any(), any()) }
-
+            runCurrent()
+            attempts shouldBe 5
             job.cancel()
         }
 
         @Test
-        fun `reconnect stops when device no longer visible in BLE`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
-            val job = setupForReconnect(autoConnect)
-            advanceUntilIdle()
+        fun `recovers after an AAP drop while the system connection stays`() = runTest(testDispatcher) {
+            var attempts = 0
+            coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
+                attempts++
+                allStatesFlow.value = aapState(AapPodState.ConnectionState.CONNECTING)
+            }
 
-            // Remove from BLE scans, then disconnect
-            every { blePodMonitor.devices } returns flowOf(emptyList())
-            allStatesFlow.value = emptyMap()
-            disconnectEventsFlow.tryEmit(AapDisconnectEvent(testAddress, wasEverReady = true))
-            advanceUntilIdle()
+            profilesFlow.value = listOf(testProfile)
+            connectedDevicesFlow.value = listOf(testBondedDevice)
+            val job = startMonitor()
+            attempts shouldBe 1
 
-            // Reconnect should not call connect since not visible in BLE
-            coVerify(exactly = 0) { aapManager.connect(testAddress, any(), any()) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `reconnect stops when device already reconnected`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
-            val job = setupForReconnect(autoConnect)
-            advanceUntilIdle()
-
-            // Keep as READY, emit disconnect event
-            // allStatesFlow still shows READY → reconnect should skip
-            disconnectEventsFlow.tryEmit(AapDisconnectEvent(testAddress, wasEverReady = true))
-            advanceUntilIdle()
-
-            // Should not attempt connect — already connected
-            coVerify(exactly = 0) { aapManager.connect(testAddress, any(), any()) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `was-ready disconnect reconnects without extra cooldown`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
-            val job = setupForReconnect(autoConnect)
-            advanceUntilIdle()
-            allStatesFlow.value = emptyMap()
-
-            // A session that reached READY drops: only the normal first retry delay (3s), no backoff cooldown.
-            disconnectEventsFlow.tryEmit(AapDisconnectEvent(testAddress, wasEverReady = true))
-            advanceTimeBy(3_100)
+            allStatesFlow.value = aapState(AapPodState.ConnectionState.READY)
             runCurrent()
 
-            coVerify(exactly = 1) { aapManager.connect(testAddress, any(), any()) }
+            // The pods stop advertising (no BLE data at all) and the AAP channel drops anyway.
+            allStatesFlow.value = aapState(AapPodState.ConnectionState.DISCONNECTED)
+            disconnectEventsFlow.emit(AapDisconnectEvent(testAddress, wasEverReady = true))
+            runCurrent()
 
+            attempts shouldBe 2
+            job.cancel()
+        }
+    }
+
+    @Nested
+    inner class Cancellation {
+
+        @Test
+        fun `cancels recovery when the system disconnects`() = runTest(testDispatcher) {
+            var attempts = 0
+            coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
+                attempts++
+                allStatesFlow.value = aapState(AapPodState.ConnectionState.CONNECTING)
+            }
+
+            profilesFlow.value = listOf(testProfile)
+            connectedDevicesFlow.value = listOf(testBondedDevice)
+            val job = startMonitor()
+
+            connectedDevicesFlow.value = emptyList()
+            runCurrent()
+
+            advanceTimeBy(300_000)
+            runCurrent()
+            attempts shouldBe 1
             job.cancel()
         }
 
         @Test
-        fun `never-ready disconnect backs off before reconnecting`() = runTest(testDispatcher) {
-            val autoConnect = createAutoConnect()
-            val job = setupForReconnect(autoConnect)
-            advanceUntilIdle()
-            allStatesFlow.value = emptyMap()
+        fun `cancels recovery when the profile is removed`() = runTest(testDispatcher) {
+            var attempts = 0
+            coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
+                attempts++
+                throw RuntimeException("socket refused")
+            }
 
-            // A session that never reached READY (failed handshake): first failure adds a 5s cooldown
-            // on top of the 3s retry delay, so nothing should connect within the 3.1s a was-ready drop would.
-            disconnectEventsFlow.tryEmit(AapDisconnectEvent(testAddress, wasEverReady = false))
-            advanceTimeBy(3_100)
+            profilesFlow.value = listOf(testProfile)
+            connectedDevicesFlow.value = listOf(testBondedDevice)
+            val job = startMonitor()
+
+            profilesFlow.value = emptyList()
             runCurrent()
-            coVerify(exactly = 0) { aapManager.connect(testAddress, any(), any()) }
 
-            // After the 5s cooldown + 3s retry delay elapse, the reconnect fires.
-            advanceUntilIdle()
-            coVerify(exactly = 1) { aapManager.connect(testAddress, any(), any()) }
+            advanceTimeBy(300_000)
+            runCurrent()
+            attempts shouldBe 1
+            job.cancel()
+        }
 
+        @Test
+        fun `cancels recovery when the device is unpaired`() = runTest(testDispatcher) {
+            var attempts = 0
+            coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
+                attempts++
+                throw RuntimeException("socket refused")
+            }
+
+            profilesFlow.value = listOf(testProfile)
+            connectedDevicesFlow.value = listOf(testBondedDevice)
+            val job = startMonitor()
+
+            bondedDevicesFlow.value = emptySet()
+            runCurrent()
+
+            advanceTimeBy(300_000)
+            runCurrent()
+            attempts shouldBe 1
             job.cancel()
         }
     }
@@ -485,162 +414,65 @@ class AapAutoConnectTest : BaseTest() {
         )
 
         @Test
-        fun `corrects model when deviceInfo reports different model`() = runTest(testDispatcher) {
-            val wrongModelProfile = AppleDeviceProfile(
-                label = "Test AirPods",
-                model = PodModel.UNKNOWN,
-                address = testAddress,
-            )
-            profilesFlow.value = listOf(wrongModelProfile)
-            connectedDevicesFlow.value = listOf(testBondedDevice)
+        fun `corrects the model when deviceInfo reports a different one`() = runTest(testDispatcher) {
+            profilesFlow.value = listOf(testProfile.copy(model = PodModel.UNKNOWN))
 
             var capturedProfile: AppleDeviceProfile? = null
             coEvery { profilesRepo.updateProfile(ofType<AppleDeviceProfile>()) } coAnswers {
                 capturedProfile = firstArg()
             }
 
-            val autoConnect = createAutoConnect()
-            val job = launch { autoConnect.monitor().toList() }
-            advanceUntilIdle()
-
-            // Simulate AAP connection with device info reporting AirPods Pro 3
+            val job = startMonitor()
             allStatesFlow.value = mapOf(
                 testAddress to AapPodState(
                     connectionState = AapPodState.ConnectionState.READY,
                     deviceInfo = testDeviceInfo,
                 )
             )
-            advanceUntilIdle()
+            advanceTimeBy(2_100)
+            runCurrent()
 
             capturedProfile!!.model shouldBe PodModel.AIRPODS_PRO3
             coVerify(exactly = 1) { aapManager.disconnect(testAddress) }
             coVerify { aapManager.connect(testAddress, any(), PodModel.AIRPODS_PRO3) }
-
             job.cancel()
         }
 
         @Test
-        fun `does not correct when model already matches`() = runTest(testDispatcher) {
-            // Profile already has correct model
-            profilesFlow.value = listOf(testProfile) // PodModel.AIRPODS_PRO3
-            connectedDevicesFlow.value = listOf(testBondedDevice)
+        fun `does not correct when the model already matches`() = runTest(testDispatcher) {
+            profilesFlow.value = listOf(testProfile)
 
-            val autoConnect = createAutoConnect()
-            val job = launch { autoConnect.monitor().toList() }
-            advanceUntilIdle()
-
+            val job = startMonitor()
             allStatesFlow.value = mapOf(
                 testAddress to AapPodState(
                     connectionState = AapPodState.ConnectionState.READY,
-                    deviceInfo = testDeviceInfo, // A3064 = AIRPODS_PRO3
+                    deviceInfo = testDeviceInfo,
                 )
             )
-            advanceUntilIdle()
+            advanceTimeBy(2_100)
+            runCurrent()
 
             coVerify(exactly = 0) { profilesRepo.updateProfile(ofType<AppleDeviceProfile>()) }
             coVerify(exactly = 0) { aapManager.disconnect(testAddress) }
-
             job.cancel()
         }
 
         @Test
-        fun `does not correct when modelNumber is unrecognized`() = runTest(testDispatcher) {
-            profilesFlow.value = listOf(testProfile)
-            connectedDevicesFlow.value = listOf(testBondedDevice)
+        fun `does not correct when the reported model number is unknown`() = runTest(testDispatcher) {
+            profilesFlow.value = listOf(testProfile.copy(model = PodModel.UNKNOWN))
 
-            val autoConnect = createAutoConnect()
-            val job = launch { autoConnect.monitor().toList() }
-            advanceUntilIdle()
-
+            val job = startMonitor()
             allStatesFlow.value = mapOf(
                 testAddress to AapPodState(
                     connectionState = AapPodState.ConnectionState.READY,
                     deviceInfo = testDeviceInfo.copy(modelNumber = "ZZZZ"),
                 )
             )
-            advanceUntilIdle()
+            advanceTimeBy(2_100)
+            runCurrent()
 
             coVerify(exactly = 0) { profilesRepo.updateProfile(ofType<AppleDeviceProfile>()) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `correction not re-triggered on subsequent state emissions`() = runTest(testDispatcher) {
-            val wrongModelProfile = AppleDeviceProfile(
-                label = "Test AirPods",
-                model = PodModel.UNKNOWN,
-                address = testAddress,
-            )
-            profilesFlow.value = listOf(wrongModelProfile)
-            connectedDevicesFlow.value = listOf(testBondedDevice)
-
-            val autoConnect = createAutoConnect()
-            val job = launch { autoConnect.monitor().toList() }
-            advanceUntilIdle()
-
-            val readyState = AapPodState(
-                connectionState = AapPodState.ConnectionState.READY,
-                deviceInfo = testDeviceInfo,
-            )
-
-            // First emission with deviceInfo
-            allStatesFlow.value = mapOf(testAddress to readyState)
-            advanceUntilIdle()
-
-            // Second emission — same modelNumber but different state (simulates battery/settings churn)
-            // StateFlow needs a structurally different value to emit; distinctUntilChanged on
-            // the modelNumber sub-map then suppresses re-processing
-            allStatesFlow.value = mapOf(testAddress to readyState.copy(lastMessageAt = java.time.Instant.now()))
-            advanceUntilIdle()
-
-            coVerify(exactly = 1) { profilesRepo.updateProfile(ofType<AppleDeviceProfile>()) }
-
-            job.cancel()
-        }
-
-        @Test
-        fun `clears processed state on disconnect for future reconnects`() = runTest(testDispatcher) {
-            val wrongModelProfile = AppleDeviceProfile(
-                label = "Test AirPods",
-                model = PodModel.UNKNOWN,
-                address = testAddress,
-            )
-            profilesFlow.value = listOf(wrongModelProfile)
-            connectedDevicesFlow.value = listOf(testBondedDevice)
-
-            val autoConnect = createAutoConnect()
-            val job = launch { autoConnect.monitor().toList() }
-            advanceUntilIdle()
-
-            // First connection with deviceInfo
-            allStatesFlow.value = mapOf(
-                testAddress to AapPodState(
-                    connectionState = AapPodState.ConnectionState.READY,
-                    deviceInfo = testDeviceInfo,
-                )
-            )
-            advanceUntilIdle()
-
-            coVerify(exactly = 1) { profilesRepo.updateProfile(ofType<AppleDeviceProfile>()) }
-
-            // Simulate disconnect (address disappears)
-            allStatesFlow.value = emptyMap()
-            advanceUntilIdle()
-
-            // Second connection — profile is now corrected, so no second updateProfile
-            profilesFlow.value = listOf(wrongModelProfile.copy(model = PodModel.AIRPODS_PRO3))
-            allStatesFlow.value = mapOf(
-                testAddress to AapPodState(
-                    connectionState = AapPodState.ConnectionState.READY,
-                    deviceInfo = testDeviceInfo,
-                )
-            )
-            advanceUntilIdle()
-
-            // Still only 1 updateProfile — model now matches
-            coVerify(exactly = 1) { profilesRepo.updateProfile(ofType<AppleDeviceProfile>()) }
-
+            coVerify(exactly = 0) { aapManager.disconnect(testAddress) }
             job.cancel()
         }
     }

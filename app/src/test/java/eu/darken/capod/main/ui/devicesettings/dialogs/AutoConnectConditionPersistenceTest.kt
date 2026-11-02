@@ -106,6 +106,9 @@ class AutoConnectConditionPersistenceTest : BaseComposeRobolectricTest() {
             nudgeCapabilityStore = mockk<NudgeCapabilityStore>(relaxed = true),
             timeSource = TestTimeSource(),
             webpageTool = mockk<WebpageTool>(relaxed = true),
+            companionPresence = mockk(relaxed = true) {
+                every { associatedAddresses } returns MutableStateFlow(emptySet())
+            },
         )
         vm.initialize(ADDRESS)
 
