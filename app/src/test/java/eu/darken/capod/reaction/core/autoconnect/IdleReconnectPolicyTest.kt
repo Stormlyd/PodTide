@@ -28,7 +28,23 @@ class IdleReconnectPolicyTest {
         limiter.tryAcquire("pods", 2_000) shouldBe true
         limiter.tryAcquire("pods", 2_100) shouldBe false
         limiter.tryAcquire("pods", 7_000) shouldBe true
-        limiter.tryAcquire("pods", 17_000) shouldBe false
-        limiter.tryAcquire("pods", 22_000) shouldBe true
+        // The ladder is 2 s → 5 s and repeats; there is no 15 s rung anymore.
+        limiter.tryAcquire("pods", 8_000) shouldBe false
+        limiter.tryAcquire("pods", 9_000) shouldBe true
+        limiter.tryAcquire("pods", 10_000) shouldBe false
+        limiter.tryAcquire("pods", 14_000) shouldBe true
+        limiter.tryAcquire("pods", 15_000) shouldBe false
+        limiter.tryAcquire("pods", 16_000) shouldBe true
+    }
+
+    @Test
+    fun `the removed 15s rung never delays a retry that long`() {
+        val limiter = ReconnectAttemptLimiter()
+        limiter.tryAcquire("pods", 0) shouldBe true
+        limiter.tryAcquire("pods", 2_000) shouldBe true
+        limiter.tryAcquire("pods", 7_000) shouldBe true
+        // Previously this needed 15 s (t=22_000); the cycle is 2 s → 5 s now.
+        limiter.tryAcquire("pods", 9_000) shouldBe true
+        limiter.tryAcquire("pods", 14_000) shouldBe true
     }
 }

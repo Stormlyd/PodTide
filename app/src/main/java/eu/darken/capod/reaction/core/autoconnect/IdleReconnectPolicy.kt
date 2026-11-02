@@ -11,15 +11,23 @@ class ReconnectAttemptLimiter {
     private data class Attempts(val count: Int, val lastAt: Long)
     private val attempts = mutableMapOf<String, Attempts>()
 
+    /**
+     * The ladder is 2 s → 5 s → 2 s → 5 s… The old third rung (15 s) was removed on request: a pod
+     * that keeps advertising while still disconnected should be retried within a few seconds, not
+     * after a quarter minute. Blind retry storms are already prevented one layer up by
+     * [IdleReconnectPolicy], which only lets fresh (≤5 s) IDLE/DISCONNECTED broadcasts through.
+     */
+    private val delaysMillis = longArrayOf(2_000L, 5_000L)
+
     fun tryAcquire(address: String, nowMillis: Long): Boolean {
         val previous = attempts[address]
         if (previous == null) {
-            attempts[address] = Attempts(1, nowMillis)
+            attempts[address] = Attempts(0, nowMillis)
             return true
         }
-        val delay = when (previous.count) { 1 -> 2_000; 2 -> 5_000; else -> 15_000 }
+        val delay = delaysMillis[previous.count % delaysMillis.size]
         if (nowMillis - previous.lastAt < delay) return false
-        attempts[address] = Attempts(if (previous.count >= 3) 1 else previous.count + 1, nowMillis)
+        attempts[address] = Attempts((previous.count + 1) % delaysMillis.size, nowMillis)
         return true
     }
 
