@@ -2,6 +2,7 @@ package eu.darken.capod.monitor.core.aap
 
 import eu.darken.capod.common.bluetooth.BluetoothDevice2
 import eu.darken.capod.common.bluetooth.BluetoothManager2
+import eu.darken.capod.common.debug.logging.Logging.Priority.INFO
 import eu.darken.capod.common.debug.logging.Logging.Priority.VERBOSE
 import eu.darken.capod.common.debug.logging.Logging.Priority.WARN
 import eu.darken.capod.common.debug.logging.log
@@ -235,7 +236,13 @@ class AapAutoConnect @Inject constructor(
                 processedModelCorrections.add(address)
 
                 try {
-                    val detectedModel = PodModel.fromModelNumber(modelNumber) ?: continue
+                    val detectedModel = PodModel.fromModelNumber(modelNumber)
+                    if (detectedModel == null) {
+                        // Unmapped hardware number (e.g. a new case revision). Log it so a bug report
+                        // carries the real identifier — never guess a model from an unknown number.
+                        log(TAG, INFO) { "AAP reported unmapped model number '$modelNumber' for $address" }
+                        continue
+                    }
 
                     val profile = profilesRepo.profiles.first()
                         .filterIsInstance<AppleDeviceProfile>()
@@ -244,6 +251,14 @@ class AapAutoConnect @Inject constructor(
 
                     if (profile.model == detectedModel) {
                         log(TAG, VERBOSE) { "AAP model confirmed for $address: $detectedModel" }
+                        continue
+                    }
+
+                    // Same physical product, different model entry (wired vs wireless charging case).
+                    // Record the more accurate label without tearing down a working control channel.
+                    if (profile.model.isInterchangeableWith(detectedModel)) {
+                        log(TAG) { "AAP model refined within family for $address: ${profile.model} -> $detectedModel" }
+                        profilesRepo.updateProfile(profile.copy(model = detectedModel))
                         continue
                     }
 
@@ -280,10 +295,11 @@ class AapAutoConnect @Inject constructor(
         internal const val READY_TIMEOUT_MS = 10_000L
 
         /**
-         * Escalating cooldown (ms) applied before a recovery attempt, indexed by consecutive
-         * pre-READY failures minus one. Caps at 60s so a device that perpetually stalls its handshake
-         * in crowded RF settles into a slow ~minute cadence instead of a tight loop.
+         * Gentle escalating cooldown (ms) applied before a recovery attempt, indexed by consecutive
+         * pre-READY failures minus one. The ladder is 2 s → 5 s and then cycles: a stalled handshake
+         * should retry within seconds (a user who just put the pods in expects controls back quickly),
+         * while a single attempt already costs up to [READY_TIMEOUT_MS], so this cannot spin.
          */
-        internal val HANDSHAKE_BACKOFF = longArrayOf(5_000, 15_000, 30_000, 60_000)
+        internal val HANDSHAKE_BACKOFF = longArrayOf(2_000, 5_000)
     }
 }

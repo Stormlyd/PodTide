@@ -62,6 +62,7 @@ import eu.darken.capod.main.ui.overview.cards.MonitoringActiveCard
 import eu.darken.capod.main.ui.overview.cards.NoProfilesCard
 import eu.darken.capod.main.ui.overview.cards.PermissionCard
 import eu.darken.capod.main.ui.overview.cards.ReactionsMovedHintCard
+import eu.darken.capod.main.ui.overview.cards.RecoveringConnectionCard
 import eu.darken.capod.main.ui.overview.cards.ReviewCard
 import eu.darken.capod.main.ui.overview.cards.SinglePodsCard
 import eu.darken.capod.main.ui.overview.cards.TroubleshootSuggestionCard
@@ -390,7 +391,15 @@ fun OverviewScreen(
                     }
                 }
 
-                // 4c. Troubleshooter suggestion — connected via audio but no live data is reaching us
+                // 4c. Recovery hint — audio is connected, the control channel is still settling.
+                // Escalates to the troubleshooter card only if the state outlasts its grace window.
+                if (state.showRecoveringHint) {
+                    item(key = "recovering_connection") {
+                        RecoveringConnectionCard()
+                    }
+                }
+
+                // 4d. Troubleshooter suggestion — connected via audio but no live data is reaching us
                 if (state.showTroubleshootSuggestion) {
                     item(key = "troubleshoot_suggestion") {
                         TroubleshootSuggestionCard(onTroubleShooter = onTroubleShooter)

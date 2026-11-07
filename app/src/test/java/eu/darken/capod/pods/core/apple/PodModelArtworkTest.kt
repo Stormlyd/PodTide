@@ -84,6 +84,19 @@ class PodModelArtworkTest {
     }
 
     @Test
+    fun `only pro models may render the hero as a banner`() {
+        // A square 96dp line icon stretched into the card banner is what made the standard series
+        // look like "a giant green logo"; only models with a real product illustration may do so.
+        PodModel.entries.forEach { model ->
+            model.artwork.hasIllustration shouldBe model.usesProHeroArt
+            model.artwork.heroKind shouldBe
+                    if (model.usesProHeroArt) HeroKind.PHOTO else HeroKind.ICON
+        }
+        PodModel.AIRPODS_GEN5.artwork.heroKind shouldBe HeroKind.ICON
+        PodModel.AIRPODS_GEN5_WIRELESS.artwork.heroKind shouldBe HeroKind.ICON
+    }
+
+    @Test
     fun `unknown model uses the generic placeholder`() {
         PodModel.UNKNOWN.artwork.source shouldBe ArtworkSource.GENERIC
         PodModel.UNKNOWN.artwork.hero shouldBe R.drawable.device_earbuds_generic_both

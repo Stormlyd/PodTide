@@ -190,6 +190,8 @@
     <string name="overview_monitoring_off_label">后台监测已关闭</string>
     <string name="overview_monitoring_off_description">所有耳机配置都没有关联已配对的蓝牙设备，因此 PodTide 仅在应用打开时更新。选择一台已配对设备，即可启用后台监测、常驻通知和自动响应。</string>
     <string name="overview_monitoring_off_action">选择已配对设备</string>
+    <string name="overview_recovering_title">耳机已连接 · 高级控制恢复中</string>
+    <string name="overview_recovering_description">音频连接正常，PodTide 正在重新建立控制通道；恢复后会自动显示实时电量与高级设置。</string>
     <string name="overview_troubleshoot_suggestion_label">已连接，但未收到数据</string>
     <string name="overview_troubleshoot_suggestion_description">设备已连接，但 PodTide 未收到实时数据。你的手机可能需要调整兼容性选项；故障排查工具可以自动尝试查找合适的选项。</string>
     <string name="overview_troubleshoot_suggestion_action">运行故障排查</string>

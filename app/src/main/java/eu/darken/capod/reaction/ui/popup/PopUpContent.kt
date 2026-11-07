@@ -130,13 +130,26 @@ private fun PopupArtwork(device: PodDevice, compact: Boolean) {
                 contentScale = ContentScale.Fit)
         }
     } else if (device.hasDualPods) {
-        Row(Modifier.fillMaxWidth().height(height).padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
-            Image(painterResource(device.leftPodIcon), null, Modifier.weight(1f).fillMaxHeight(), contentScale = ContentScale.Fit)
-            if (device.hasCase) Image(painterResource(device.caseIcon), null, Modifier.weight(1.3f).fillMaxHeight(), contentScale = ContentScale.Fit)
-            Image(painterResource(device.rightPodIcon), null, Modifier.weight(1f).fillMaxHeight(), contentScale = ContentScale.Fit)
+        // Icon-art models: keep the artwork at icon scale inside a fixed row instead of blowing a
+        // square 96dp glyph up to the full popup illustration height.
+        val iconSize = if (compact) 52.dp else 64.dp
+        Box(Modifier.fillMaxWidth().height(height * 0.5f), contentAlignment = Alignment.Center) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                Image(painterResource(device.leftPodIcon), null, Modifier.size(iconSize), contentScale = ContentScale.Fit)
+                if (device.hasCase) {
+                    Image(painterResource(device.caseIcon), null, Modifier.size(iconSize * 1.15f), contentScale = ContentScale.Fit)
+                }
+                Image(painterResource(device.rightPodIcon), null, Modifier.size(iconSize), contentScale = ContentScale.Fit)
+            }
         }
     } else {
-        Image(painterResource(device.iconRes), null, Modifier.fillMaxWidth().height(height).padding(20.dp), contentScale = ContentScale.Fit)
+        Box(Modifier.fillMaxWidth().height(height * 0.5f), contentAlignment = Alignment.Center) {
+            Image(painterResource(device.iconRes), null, Modifier.size(if (compact) 52.dp else 64.dp), contentScale = ContentScale.Fit)
+        }
     }
 }
 

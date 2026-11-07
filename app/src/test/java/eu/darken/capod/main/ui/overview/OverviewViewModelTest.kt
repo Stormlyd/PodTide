@@ -1040,16 +1040,26 @@ class OverviewViewModelTest : BaseTest() {
         }
 
         @Test
-        fun `appears only after the debounce delay`() = runTest(testDispatcher) {
+        fun `reports recovery first, then escalates to the troubleshooter`() = runTest(testDispatcher) {
             setConnectedButNoLiveData()
             val vm = createViewModel()
             var latest: OverviewViewModel.State? = null
             backgroundScope.launch { vm.state.collect { latest = it } }
 
+            // Nothing during the first seconds: a normal connect can take a moment.
             advanceTimeBy(14_000)
+            latest!!.showRecoveringHint shouldBe false
             latest!!.showTroubleshootSuggestion shouldBe false
 
-            advanceTimeBy(2_000)
+            // Audio is connected and the control channel is still settling: friendly state, no card
+            // that claims the phone is broken.
+            advanceTimeBy(7_000)
+            latest!!.showRecoveringHint shouldBe true
+            latest!!.showTroubleshootSuggestion shouldBe false
+
+            // Still nothing after the full window: now it is worth troubleshooting.
+            advanceTimeBy(16_000)
+            latest!!.showRecoveringHint shouldBe false
             latest!!.showTroubleshootSuggestion shouldBe true
         }
 
@@ -1191,7 +1201,7 @@ class OverviewViewModelTest : BaseTest() {
             var latest: OverviewViewModel.State? = null
             backgroundScope.launch { vm.state.collect { latest = it } }
 
-            advanceTimeBy(20_000)
+            advanceTimeBy(36_000)
 
             latest!!.showTroubleshootSuggestion shouldBe true
             latest!!.showReviewCard shouldBe false

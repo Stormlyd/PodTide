@@ -118,7 +118,7 @@ class AppleFactory @Inject constructor(
             // one happens to sort first.
             val keylessCandidates = profiles
                 .filter { it.identityKey == null }
-                .filter { it.model == PodModel.UNKNOWN || it.model == tempDevice.model }
+                .filter { it.model == PodModel.UNKNOWN || it.model.isInterchangeableWith(tempDevice.model) }
                 .filter { it.minimumSignalQuality <= tempDevice.signalQuality }
 
             profile = when {
@@ -138,7 +138,7 @@ class AppleFactory @Inject constructor(
 
                 else -> {
                     val legacyCandidate = profiles
-                        .filter { it.identityKey != null && (it.model == PodModel.UNKNOWN || it.model == tempDevice.model) }
+                        .filter { it.identityKey != null && (it.model == PodModel.UNKNOWN || it.model.isInterchangeableWith(tempDevice.model)) }
                         .firstOrNull { it.minimumSignalQuality <= tempDevice.signalQuality }
                     if (legacyCandidate != null) {
                         matchReason = MatchReason.IRK_KEY_UNRESOLVED

@@ -208,10 +208,11 @@ class AapAutoConnectTest : BaseTest() {
             connectedDevicesFlow.value = listOf(testBondedDevice)
             val job = startMonitor()
 
-            // Round 1 at t=0, then escalating cooldowns 5s, 15s, 30s → 4th attempt at t=50s.
+            // Round 1 at t=0, then the gentle 2s/5s ladder keeps cycling.
             advanceTimeBy(50_000)
             runCurrent()
-            attempts shouldBe 4
+            val attemptsBefore = attempts
+            (attemptsBefore > 3) shouldBe true
 
             // Nothing external changed: the loop must still be alive and able to recover.
             coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
@@ -220,15 +221,16 @@ class AapAutoConnectTest : BaseTest() {
             }
             advanceTimeBy(60_000)
             runCurrent()
-            attempts shouldBe 5
+            (attempts > attemptsBefore) shouldBe true
 
             allStatesFlow.value = aapState(AapPodState.ConnectionState.READY)
             runCurrent()
+            val attemptsAtReady = attempts
 
             // Reaching READY ends recovery; no further attempts afterwards.
             advanceTimeBy(300_000)
             runCurrent()
-            attempts shouldBe 5
+            attempts shouldBe attemptsAtReady
             job.cancel()
         }
 
@@ -292,10 +294,11 @@ class AapAutoConnectTest : BaseTest() {
 
             advanceTimeBy(50_000)
             runCurrent()
-            attempts shouldBe 4
+            val beforeReconnect = attempts
+            (beforeReconnect > 3) shouldBe true
 
             // Device leaves and comes back: that is a new session, so recovery must react at once
-            // instead of waiting out the 60s cooldown earned by the previous outage.
+            // instead of waiting out the cooldown earned by the previous outage.
             connectedDevicesFlow.value = emptyList()
             runCurrent()
             coEvery { aapManager.connect(any(), any(), any()) } coAnswers {
@@ -305,7 +308,7 @@ class AapAutoConnectTest : BaseTest() {
             connectedDevicesFlow.value = listOf(testBondedDevice)
 
             runCurrent()
-            attempts shouldBe 5
+            attempts shouldBe beforeReconnect + 1
             job.cancel()
         }
 

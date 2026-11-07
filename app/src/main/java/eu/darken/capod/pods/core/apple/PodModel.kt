@@ -631,7 +631,37 @@ enum class PodModel(
     UNKNOWN("Unknown"),
     ;
 
+    /**
+     * True when [other] is the same physical product family, so a profile saved for one variant
+     * must still match a broadcast of the other.
+     *
+     * Bluetooth identifies the very same earbuds with different model entries depending on the
+     * charging case revision they ship with (wired case vs wireless case). Treating those entries
+     * as unrelated identities is what splits one pair into "configured but offline" plus a
+     * stranger card in the unmatched section. Identity matching, model auto-correction and
+     * artwork all go through this predicate instead of `==`.
+     */
+    fun isInterchangeableWith(other: PodModel): Boolean =
+        this == other || other in interchangeableModels
+
+    /** Every model that shares this model's physical identity (empty for singletons). */
+    val interchangeableModels: Set<PodModel>
+        get() = INTERCHANGEABLE_MODELS[this] ?: emptySet()
+
     companion object {
+        /**
+         * Model entries that describe the same physical earbuds and must be treated as one
+         * identity. Bluetooth switches between them depending on the charging case the unit ships
+         * with, so a profile configured as one variant has to keep matching the other one.
+         *
+         * Add pairs here as Apple ships more case revisions — never fabricate model numbers for
+         * them, the matching predicate is enough to keep identity and artwork coherent.
+         */
+        private val INTERCHANGEABLE_MODELS: Map<PodModel, Set<PodModel>> = mapOf(
+            AIRPODS_GEN5 to setOf(AIRPODS_GEN5, AIRPODS_GEN5_WIRELESS),
+            AIRPODS_GEN5_WIRELESS to setOf(AIRPODS_GEN5, AIRPODS_GEN5_WIRELESS),
+        )
+
         fun fromModelNumber(modelNumber: String): PodModel? {
             val normalized = modelNumber.trim().uppercase()
             if (normalized.isBlank()) return null

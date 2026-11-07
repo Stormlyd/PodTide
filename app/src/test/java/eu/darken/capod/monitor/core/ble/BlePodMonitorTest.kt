@@ -13,6 +13,8 @@ import eu.darken.capod.common.bluetooth.ScannerMode
 import eu.darken.capod.common.permissions.Permission
 import eu.darken.capod.main.core.GeneralSettings
 import eu.darken.capod.main.core.PermissionTool
+import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
+import eu.darken.capod.pods.core.apple.aap.AapPodState
 import eu.darken.capod.pods.core.apple.ble.BlePodSnapshot
 import eu.darken.capod.pods.core.apple.ble.PodFactory
 import eu.darken.capod.pods.core.apple.ble.devices.ApplePods
@@ -68,7 +70,7 @@ class BlePodMonitorTest : BaseTest() {
         (starts > before) shouldBe true
     }
     @Test
-    fun `scan stops on paired connection and resumes after disconnect`() = runTest {
+    fun `scan keeps running while the audio connection has no control channel`() = runTest {
         val connected = MutableStateFlow<List<BluetoothDevice2>>(emptyList())
         val profiles = MutableStateFlow(listOf(AppleDeviceProfile(label = "Pods", address = ADDRESS_X)))
         var starts = 0
@@ -80,9 +82,42 @@ class BlePodMonitorTest : BaseTest() {
         backgroundScope.launch { fixture.monitor.devices.collect {} }
         runCurrent()
         starts shouldBe 1
+
+        // A2DP says "connected" but AAP never reached READY: stopping the scan here is what left the
+        // app with neither channel ("plays music, PodTide goes offline").
         connected.value = listOf(BluetoothDevice2(ADDRESS_X, "Pods", java.time.Instant.EPOCH))
         runCurrent()
+        stops shouldBe 0
+        starts shouldBe 1
+    }
+
+    @Test
+    fun `scan stops only once the control channel is ready and resumes after disconnect`() = runTest {
+        val connected = MutableStateFlow<List<BluetoothDevice2>>(emptyList())
+        val profiles = MutableStateFlow(listOf(AppleDeviceProfile(label = "Pods", address = ADDRESS_X)))
+        val aapStates = MutableStateFlow<Map<String, AapPodState>>(emptyMap())
+        var starts = 0
+        var stops = 0
+        val fixture = createFixture(
+            connected = connected,
+            profileState = profiles,
+            aapStates = aapStates,
+        ) {
+            starts++
+            flow<Collection<BleScanResult>> { try { awaitCancellation() } finally { stops++ } }
+        }
+        backgroundScope.launch { fixture.monitor.devices.collect {} }
+        runCurrent()
+        starts shouldBe 1
+
+        connected.value = listOf(BluetoothDevice2(ADDRESS_X, "Pods", java.time.Instant.EPOCH))
+        runCurrent()
+        stops shouldBe 0
+
+        aapStates.value = mapOf(ADDRESS_X to AapPodState(connectionState = AapPodState.ConnectionState.READY))
+        runCurrent()
         stops shouldBe 1
+
         connected.value = emptyList()
         runCurrent()
         starts shouldBe 2
@@ -319,6 +354,7 @@ class BlePodMonitorTest : BaseTest() {
         timeSource: TimeSource = TestTimeSource(),
         connected: MutableStateFlow<List<BluetoothDevice2>> = MutableStateFlow(emptyList()),
         profileState: MutableStateFlow<List<AppleDeviceProfile>> = MutableStateFlow(emptyList()),
+        aapStates: MutableStateFlow<Map<String, AapPodState>> = MutableStateFlow(emptyMap()),
         scanFlowFactory: () -> Flow<Collection<BleScanResult>>,
     ): Fixture {
         mockkObject(ProximityPairing)
@@ -356,6 +392,9 @@ class BlePodMonitorTest : BaseTest() {
         val profilesRepo = mockk<DeviceProfilesRepo>().apply {
             every { profiles } returns profileState
         }
+        val aapManager = mockk<AapConnectionManager>().apply {
+            every { allStates } returns aapStates
+        }
         return Fixture(
             monitor = BlePodMonitor(
                 appScope = backgroundScope,
@@ -367,6 +406,7 @@ class BlePodMonitorTest : BaseTest() {
                 bluetoothManager = bluetoothManager,
                 permissionTool = permissionTool,
                 profilesRepo = profilesRepo,
+                aapManager = aapManager,
             ),
             bleScanner = bleScanner,
             permissionTool = permissionTool,

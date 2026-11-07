@@ -122,14 +122,31 @@ fun DualPodsCard(
                 .padding(16.dp)
                 .animateContentSize(),
         ) {
-            // Give the device its own visual anchor in the expanded view.
+            // Give the device its own visual anchor in the expanded view. Only models with a real
+            // product illustration get the banner: stretching a square line icon to 112dp is what
+            // made the standard series look like a giant logo, so those get a compact icon instead.
             if (!isCollapsed) {
-                Image(
-                    painter = painterResource(device.model.artwork.hero),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxWidth().height(112.dp),
-                    contentScale = ContentScale.Fit,
-                )
+                val artwork = device.model.artwork
+                when {
+                    artwork.hasIllustration -> Image(
+                        painter = painterResource(artwork.hero),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxWidth().height(112.dp),
+                        contentScale = ContentScale.Fit,
+                    )
+
+                    else -> Box(
+                        modifier = Modifier.fillMaxWidth().height(64.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Image(
+                            painter = painterResource(artwork.hero),
+                            contentDescription = null,
+                            modifier = Modifier.size(52.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    }
+                }
                 Spacer(Modifier.height(6.dp))
             }
             Row(

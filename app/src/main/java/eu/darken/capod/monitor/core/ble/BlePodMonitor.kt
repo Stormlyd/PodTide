@@ -6,6 +6,8 @@ import eu.darken.capod.common.TimeSource
 import eu.darken.capod.common.bluetooth.BleScanResult
 import eu.darken.capod.common.bluetooth.BleScanException
 import eu.darken.capod.common.bluetooth.BleScanner
+import eu.darken.capod.common.bluetooth.BluetoothAddress
+import eu.darken.capod.common.bluetooth.BluetoothDevice2
 import eu.darken.capod.common.bluetooth.BluetoothManager2
 import eu.darken.capod.common.bluetooth.ScanFilterPolicy
 import eu.darken.capod.common.bluetooth.ScannerMode
@@ -19,6 +21,8 @@ import eu.darken.capod.common.flow.replayingShare
 import eu.darken.capod.common.flow.throttleLatest
 import eu.darken.capod.main.core.GeneralSettings
 import eu.darken.capod.main.core.PermissionTool
+import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
+import eu.darken.capod.pods.core.apple.aap.AapPodState
 import eu.darken.capod.pods.core.apple.ble.BlePodSnapshot
 import eu.darken.capod.pods.core.apple.ble.PodFactory
 import eu.darken.capod.pods.core.apple.ble.devices.DualApplePods
@@ -57,6 +61,7 @@ class BlePodMonitor @Inject constructor(
     bluetoothManager: BluetoothManager2,
     private val permissionTool: PermissionTool,
     private val profilesRepo: DeviceProfilesRepo,
+    private val aapManager: AapConnectionManager,
 ) {
 
     private val deviceCache = mutableMapOf<BlePodSnapshot.Id, BlePodSnapshot>()
@@ -118,20 +123,39 @@ class BlePodMonitor @Inject constructor(
         )
     }
 
+    /**
+     * Audio connection and control-channel state, sampled together so the scan gate below can tell
+     * "the system is connected" apart from "we actually have live data through AAP".
+     */
+    private val audioAndControl: Flow<Pair<List<BluetoothDevice2>, Map<BluetoothAddress, AapPodState>>> = combine(
+        bluetoothManager.connectedDevices.onStart { emit(emptyList()) },
+        aapManager.allStates,
+    ) { connected, aapStates -> connected to aapStates }
+
     val devices: Flow<List<BlePodSnapshot>> = combine(
         permissionTool.missingScanPermissions,
         bluetoothManager.isBluetoothEnabled,
         profilesRepo.profiles,
-        bluetoothManager.connectedDevices.onStart { emit(emptyList()) },
+        audioAndControl,
         unfilteredOverride,
-    ) { missing, enabled, profiles, connected, troubleshooting ->
+    ) { missing, enabled, profiles, (connected, aapStates), troubleshooting ->
         val ready = missing.isEmpty() && enabled
         val addresses = profiles.mapNotNull { it.address?.takeIf(String::isNotBlank) }
         val allConnected = addresses.isNotEmpty() && addresses.all { address ->
             connected.any { it.address.equals(address, ignoreCase = true) }
         }
+        // A2DP/HFP connected is NOT the same thing as "we get live data": that only comes from the
+        // control channel (AAP) or from BLE. Pausing discovery on the audio event alone left the app
+        // with neither channel whenever the AAP handshake stalled, which reads as "plays music fine
+        // but PodTide goes offline after ~30 s". Keep scanning until the control channel is READY.
+        val allControlled = addresses.isNotEmpty() && addresses.all { address ->
+            aapStates.entries.any { (aapAddress, state) ->
+                aapAddress.equals(address, ignoreCase = true) &&
+                    state.connectionState == AapPodState.ConnectionState.READY
+            }
+        }
         // An explicit troubleshooting scan must still work while the audio device is connected.
-        ready to (!allConnected || troubleshooting)
+        ready to (!(allConnected && allControlled) || troubleshooting)
     }
         .distinctUntilChanged()
         .flatMapLatest { (isReady, shouldScan) ->

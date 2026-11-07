@@ -42,7 +42,26 @@ data class ModelArtwork(
     /** Case image used next to the case battery gauge. */
     @DrawableRes val popupCase: Int,
     val source: ArtworkSource,
-)
+    /**
+     * How [hero] may be laid out.
+     *
+     * [HeroKind.PHOTO] is a wide product illustration and can fill a card banner. Every other model
+     * only has a square 96dp line icon: stretching that into a 112dp banner is what made the
+     * standard series look like "a huge green logo", so those render as a compact icon instead.
+     */
+    val heroKind: HeroKind = HeroKind.ICON,
+) {
+    /** True when [hero] is a full product illustration rather than a line icon. */
+    val hasIllustration: Boolean get() = heroKind == HeroKind.PHOTO
+}
+
+enum class HeroKind {
+    /** Full product illustration (transparent photo/render); safe to use as a card banner. */
+    PHOTO,
+
+    /** Square line icon; only render it at icon size, never stretched into a banner. */
+    ICON,
+}
 
 /** Models whose rounded "stem" silhouette art exists and is used as the popup hero image. */
 private val PRO_HERO_MODELS = setOf(
@@ -113,6 +132,7 @@ val PodModel.artwork: ModelArtwork
             popupRight = if (proHero) R.drawable.popup_pro_earbud else right,
             popupCase = if (proHero) R.drawable.popup_pro_case else case,
             source = source,
+            heroKind = if (proHero) HeroKind.PHOTO else HeroKind.ICON,
         )
     }
 

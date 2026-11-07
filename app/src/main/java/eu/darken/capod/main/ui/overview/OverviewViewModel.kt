@@ -100,21 +100,38 @@ class OverviewViewModel @Inject constructor(
     private data class OverviewUiSettings(
         val reactionsHintDismissed: Boolean,
         val hideUnmatchedDevices: Boolean,
+        val showRecoveringHint: Boolean,
         val showTroubleshootSuggestion: Boolean,
         val batteryEstimates: Map<String, BatteryEstimate>,
         val effectiveMode: MonitorMode,
         val reviewState: ReviewTool.State,
     )
 
+    /** What the overview should say about a profile that is audio-connected but not delivering data. */
+    private enum class ConnectivityHint {
+        /** Nothing to report: not connected, or live data is already arriving. */
+        NONE,
+
+        /** Audio is connected, the control channel is being (re)established — a normal transition. */
+        RECOVERING,
+
+        /** Audio is connected and nothing arrived within the grace window — worth troubleshooting. */
+        NO_DATA,
+    }
+
     /**
      * True when a profile is connected to the system (audio) but CAPod has *no* live data for any
      * device — the classic "broadcasts are being dropped by the ROM" symptom (e.g. some HyperOS
-     * phones, see #603). Surfaced as a hint pointing at the Troubleshooter, which can probe and
-     * persist a working compatibility combo. Debounced so it doesn't flash during the brief window
-     * between an audio connection and the first BLE broadcast. Suppressed whenever any pod is live,
-     * so it never claims "no data" while data is visibly arriving (incl. the #603 duplicate state).
+     * phones, see #603).
+     *
+     * The first [RECOVERING_GRACE_MS] of that state is reported as [ConnectivityHint.RECOVERING]:
+     * audio-connected-but-no-data is also what a normal AAP handshake looks like for a few seconds,
+     * and a hard failure card there is misleading (0.3.x showed it while the control channel was
+     * still settling). Only after [TROUBLESHOOT_SUGGESTION_DELAY_MS] does it escalate to the
+     * troubleshooter hint. Suppressed whenever any pod is live, so it never claims "no data" while
+     * data is visibly arriving (incl. the #603 duplicate state).
      */
-    private val troubleshootSuggestion = combineFlows(
+    private val connectivityHint = combineFlows(
         profilesRepo.profiles,
         bluetoothManager.connectedDevices.onStart { emit(emptyList()) },
         deviceMonitor.devices,
@@ -123,32 +140,44 @@ class OverviewViewModel @Inject constructor(
         val connectedAddresses = connectedDevices.mapTo(mutableSetOf()) { it.address }
         val anyProfileConnected = profiles.any { it.address != null && it.address in connectedAddresses }
         val anyLivePod = devices.any { it.isLive }
-        missingScanPermissions.isEmpty() && anyProfileConnected && !anyLivePod
+        when {
+            missingScanPermissions.isNotEmpty() -> ConnectivityHint.NONE
+            !anyProfileConnected -> ConnectivityHint.NONE
+            anyLivePod -> ConnectivityHint.NONE
+            else -> ConnectivityHint.RECOVERING
+        }
     }
         .distinctUntilChanged()
-        .flatMapLatest { conditionMet ->
-            if (conditionMet) flow {
-                delay(TROUBLESHOOT_SUGGESTION_DELAY_MS)
-                emit(true)
-            } else flowOf(false)
+        .flatMapLatest { hint ->
+            when (hint) {
+                ConnectivityHint.NONE -> flowOf(ConnectivityHint.NONE)
+                ConnectivityHint.NO_DATA -> flowOf(ConnectivityHint.NO_DATA)
+                ConnectivityHint.RECOVERING -> flow {
+                    delay(RECOVERING_GRACE_MS)
+                    emit(ConnectivityHint.RECOVERING)
+                    delay(TROUBLESHOOT_SUGGESTION_DELAY_MS)
+                    emit(ConnectivityHint.NO_DATA)
+                }
+            }
         }
-        .onStart { emit(false) }
+        .onStart { emit(ConnectivityHint.NONE) }
         .distinctUntilChanged()
 
     private val overviewUiSettings = combine(
         generalSettings.reactionsHintDismissed.flow,
         generalSettings.hideUnmatchedDevices.flow,
-        troubleshootSuggestion,
+        connectivityHint,
         batteryEstimator.estimates,
         monitorModeResolver.effectiveMode,
         // The review prompt is a nice-to-have: a failing review backend must never take the whole
         // overview down with it, so it falls back to "don't ask".
         reviewTool.state.catch { emit(ReviewTool.State()) },
-    ) { reactionsHintDismissed, hideUnmatched, showTroubleshootSuggestion, batteryEstimates, effectiveMode, reviewState ->
+    ) { reactionsHintDismissed, hideUnmatched, hint, batteryEstimates, effectiveMode, reviewState ->
         OverviewUiSettings(
             reactionsHintDismissed = reactionsHintDismissed,
             hideUnmatchedDevices = hideUnmatched,
-            showTroubleshootSuggestion = showTroubleshootSuggestion,
+            showRecoveringHint = hint == ConnectivityHint.RECOVERING,
+            showTroubleshootSuggestion = hint == ConnectivityHint.NO_DATA,
             batteryEstimates = batteryEstimates,
             effectiveMode = effectiveMode,
             reviewState = reviewState,
@@ -242,6 +271,7 @@ class OverviewViewModel @Inject constructor(
             showReactionsHint = hadLegacyReactionData && !uiSettings.reactionsHintDismissed,
             hideUnmatchedDevices = uiSettings.hideUnmatchedDevices,
             showTroubleshootSuggestion = uiSettings.showTroubleshootSuggestion,
+            showRecoveringHint = uiSettings.showRecoveringHint,
             batteryEstimates = uiSettings.batteryEstimates,
         )
 
@@ -272,6 +302,7 @@ class OverviewViewModel @Inject constructor(
         val userExpandedIds: Set<String> = emptySet(),
         val showReactionsHint: Boolean = false,
         val hideUnmatchedDevices: Boolean = false,
+        val showRecoveringHint: Boolean = false,
         val showTroubleshootSuggestion: Boolean = false,
         val batteryEstimates: Map<String, BatteryEstimate> = emptyMap(),
         val showReviewCard: Boolean = false,
@@ -358,6 +389,7 @@ class OverviewViewModel @Inject constructor(
          */
         val hasHigherPriorityCard: Boolean
             get() = permissions.isNotEmpty() ||
+                    showRecoveringHint ||
                     showTroubleshootSuggestion ||
                     monitoringStatus == MonitoringStatus.BACKGROUND_OFF ||
                     !isBluetoothEnabled ||
@@ -477,6 +509,17 @@ class OverviewViewModel @Inject constructor(
          * How long the "connected but no live data" condition must hold before the troubleshooter
          * hint appears, so it doesn't flash during the gap between an audio connection and the first
          * BLE broadcast.
+         */
+        /**
+         * How long "audio connected but no live data yet" is presented as a normal recovery state
+         * before the overview starts calling it a problem. Covers the window between the A2DP
+         * connection event and the first BLE broadcast / AAP handshake.
+         */
+        private const val RECOVERING_GRACE_MS = 20_000L
+
+        /**
+         * How long the "connected but no live data" condition must hold after the recovery grace
+         * before the troubleshooter hint appears.
          */
         private const val TROUBLESHOOT_SUGGESTION_DELAY_MS = 15_000L
 
