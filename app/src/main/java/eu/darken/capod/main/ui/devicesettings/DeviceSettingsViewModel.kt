@@ -40,10 +40,14 @@ import eu.darken.capod.reaction.core.autoconnect.AutoConnectCondition
 import eu.darken.capod.reaction.core.charged.ChargedSlotScope
 import eu.darken.capod.reaction.core.conversation.ConversationAction
 import eu.darken.capod.reaction.core.conversation.ConversationVolumeMode
+import eu.darken.capod.reaction.core.headgesture.HeadGestureConfig
+import eu.darken.capod.reaction.core.headgesture.HeadGestureSettings
 import eu.darken.capod.reaction.core.stem.StemAction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -70,17 +74,38 @@ class DeviceSettingsViewModel @Inject constructor(
     private val timeSource: TimeSource,
     private val webpageTool: WebpageTool,
     private val companionPresence: CompanionPresence,
+    private val headGestureSettings: HeadGestureSettings,
 ) : ViewModel4(dispatcherProvider) {
 
     private val targetProfileId = MutableStateFlow<ProfileId?>(null)
     private var targetProfileGeneration = 0L
     private var initialized = false
 
+    /**
+     * Head-gesture configuration of the selected profile. Kept outside [State] because the screen
+     * consumes it on its own (the gesture card updates the shared preferences store, not the AAP
+     * settings) and the big state combine does not need another input.
+     */
+    private val _headGestureConfig = MutableStateFlow<HeadGestureConfig?>(null)
+    val headGestureConfig: StateFlow<HeadGestureConfig?> = _headGestureConfig.asStateFlow()
+
+    fun setHeadGestureConfig(config: HeadGestureConfig) {
+        val profileId = targetProfileId.value ?: return
+        headGestureSettings.update(profileId, config)
+        _headGestureConfig.value = headGestureSettings.read(profileId)
+    }
+
+    fun navToHeadPreview() = launch {
+        val profileId = targetProfileId.value ?: return@launch
+        navTo(Nav.Main.HeadPreview(profileId = profileId))
+    }
+
     fun initialize(profileId: ProfileId) {
         if (initialized && targetProfileId.value == profileId) return
         initialized = true
         targetProfileGeneration++
         targetProfileId.value = profileId
+        _headGestureConfig.value = headGestureSettings.read(profileId)
     }
 
     private val updateTicker = channelFlow<Unit> {

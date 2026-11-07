@@ -29,6 +29,21 @@ class HeadPreviewMenuTest : BaseComposeRobolectricTest() {
         assertTrue(opened)
     }
 
+    @Test fun `gesture settings card is reachable once a config is available`() {
+        var updated: eu.darken.capod.reaction.core.headgesture.HeadGestureConfig? = null
+        composeRule.setContent { PreviewWrapper {
+            DeviceSettingsScreen(
+                DeviceSettingsViewModel.State(device = null, profileModel = PodModel.AIRPODS_PRO3),
+                onNavigateUp = {},
+                headGestureConfig = eu.darken.capod.reaction.core.headgesture.HeadGestureConfig(),
+                onHeadGestureConfigChange = { updated = it },
+            )
+        } }
+        composeRule.onNodeWithTag("device_settings_list")
+            .performScrollToNode(hasTestTag("head_preview_entry"))
+        composeRule.onNodeWithText("头部手势").assertIsDisplayed()
+    }
+
     @Test fun `Chinese preview page has explicit safe controls`() {
         var started = false
         var backed = false

@@ -29,6 +29,7 @@ import eu.darken.capod.profiles.core.DeviceProfilesContainer
 import eu.darken.capod.profiles.core.DeviceProfilesRepo
 import eu.darken.capod.profiles.core.DeviceProfilesSettings
 import eu.darken.capod.profiles.core.toReactionConfig
+import eu.darken.capod.reaction.core.headgesture.HeadGestureConfig
 import eu.darken.capod.reaction.core.autoconnect.AutoConnectCondition
 import io.kotest.matchers.shouldBe
 import io.mockk.every
@@ -108,6 +109,9 @@ class AutoConnectConditionPersistenceTest : BaseComposeRobolectricTest() {
             webpageTool = mockk<WebpageTool>(relaxed = true),
             companionPresence = mockk(relaxed = true) {
                 every { associatedAddresses } returns MutableStateFlow(emptySet())
+            },
+            headGestureSettings = mockk(relaxed = true) {
+                every { read(any()) } returns HeadGestureConfig()
             },
         )
         vm.initialize(ADDRESS)

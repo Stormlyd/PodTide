@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.twotone.ArrowBack
 import androidx.compose.material.icons.twotone.BluetoothConnected
+import androidx.compose.material.icons.twotone.Headphones
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +57,7 @@ import eu.darken.capod.main.ui.devicesettings.cards.BatteryHealthTexts
 import eu.darken.capod.main.ui.devicesettings.cards.BatteryRuntimeWarningBanner
 import eu.darken.capod.main.ui.devicesettings.cards.ControlsCard
 import eu.darken.capod.main.ui.devicesettings.cards.CustomEqCard
+import eu.darken.capod.main.ui.devicesettings.cards.HeadGestureCard
 import eu.darken.capod.main.ui.devicesettings.cards.DeviceInfoBottomSheet
 import eu.darken.capod.main.ui.devicesettings.cards.DeviceInfoCard
 import eu.darken.capod.main.ui.heartrate.HeartRateMenuItem
@@ -193,6 +195,7 @@ fun DeviceSettingsScreenHost(
     }
 
     val currentState = state ?: return
+    val headGestureConfig by vm.headGestureConfig.collectAsStateWithLifecycle()
 
     DeviceSettingsScreen(
         state = currentState,
@@ -221,6 +224,9 @@ fun DeviceSettingsScreenHost(
         onDeviceNameChange = { vm.setDeviceName(it) },
         onPressControlsClick = { vm.navToPressControls() },
         onHeartRateClick = { vm.navToHeartRate() },
+        onHeadPreviewClick = { vm.navToHeadPreview() },
+        headGestureConfig = headGestureConfig,
+        onHeadGestureConfigChange = { vm.setHeadGestureConfig(it) },
         onEditProfile = { vm.navToEditProfile() },
         onForceConnect = { vm.forceConnect() },
         onUpgrade = { vm.launchUpgrade() },
@@ -493,7 +499,32 @@ fun DeviceSettingsScreen(
             if ((device?.model ?: state.profileModel) == eu.darken.capod.pods.core.apple.PodModel.AIRPODS_PRO3) {
                 item("heart_rate_section") { HeartRateMenuItem(onClick = onHeartRateClick) }
             }
-            // Head gesture and motion preview remain disabled until they can be verified.
+            // Head pose / gesture test page. It owns an on-demand sensor stream (started on page
+            // entry, stopped on exit), so simply having the entry costs nothing while idle.
+            if ((device?.model ?: state.profileModel) != null &&
+                (device?.model ?: state.profileModel) != eu.darken.capod.pods.core.apple.PodModel.UNKNOWN
+            ) {
+                item("head_preview_entry") {
+                    SettingsSection {
+                        SettingsPreferenceItem(
+                            icon = Icons.TwoTone.Headphones,
+                            title = stringResource(R.string.head_preview_title),
+                            subtitle = stringResource(R.string.head_preview_entry_description),
+                            onClick = onHeadPreviewClick,
+                            modifier = Modifier.testTag("head_preview_entry"),
+                        )
+                    }
+                }
+            }
+
+            if (headGestureConfig != null) {
+                item("head_gesture_section") {
+                    HeadGestureCard(
+                        config = headGestureConfig,
+                        onConfigChange = onHeadGestureConfigChange,
+                    )
+                }
+            }
 
             // ── Reactions (gated on classic connection — needs phone to be the audio target) ──
             if (device != null && device.hasSelectedPairedDevice &&

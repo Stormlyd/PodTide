@@ -32,6 +32,7 @@ import eu.darken.capod.profiles.core.DeviceProfilesSettings
 import eu.darken.capod.profiles.core.DeviceProfilesContainer
 import eu.darken.capod.profiles.core.ProfileId
 import eu.darken.capod.profiles.core.SelectedDeviceTarget
+import eu.darken.capod.reaction.core.headgesture.HeadGestureConfig
 import eu.darken.capod.reaction.core.conversation.ConversationVolumeMode
 import eu.darken.capod.reaction.core.stem.StemAction
 import eu.darken.capod.reaction.core.stem.StemActionsConfig
@@ -194,6 +195,9 @@ class DeviceSettingsViewModelTest : BaseTest() {
         webpageTool = mockk(relaxed = true),
         companionPresence = mockk(relaxed = true) {
             every { associatedAddresses } returns MutableStateFlow(emptySet())
+        },
+        headGestureSettings = mockk(relaxed = true) {
+            every { read(any()) } returns HeadGestureConfig()
         },
     ).also { vm = it }
 
