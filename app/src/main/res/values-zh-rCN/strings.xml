@@ -515,7 +515,7 @@
     <string name="anc_mode_not_confirmed_message">AirPods 未确认聆听模式已更改。</string>
     <string name="device_settings_category_battery_label">电池</string>
     <string name="device_settings_charge_cap_label">优化充电上限</string>
-    <string name="device_settings_charge_cap_description">根据你的使用习惯，在电量达到约 80%% 时暂停充电以延长电池寿命，并在你可能使用耳机前充满电。</string>
+    <string name="device_settings_charge_cap_description">根据你的使用习惯，在电量达到约 80% 时暂停充电以延长电池寿命，并在你可能使用耳机前充满电。</string>
     <string name="device_settings_charge_cap_rejected_message">无法更改优化充电上限。此功能仍在试验阶段；如果持续失败，请反馈。</string>
     <string name="device_settings_category_connections_label">已连接的设备</string>
     <string name="device_settings_connected_devices_description">当前连接到这副 AirPods 的其他设备</string>

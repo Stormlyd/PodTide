@@ -69,7 +69,6 @@ import eu.darken.capod.main.ui.devicesettings.cards.buildDeviceInfoDetailItems
 import eu.darken.capod.main.ui.devicesettings.cards.buildModelLabel
 import eu.darken.capod.main.ui.devicesettings.cards.rememberDeviceInfoDetailLabels
 import eu.darken.capod.main.ui.devicesettings.components.ConnectedDevicesList
-import eu.darken.capod.main.ui.devicesettings.components.EqBarsChart
 import eu.darken.capod.main.ui.devicesettings.dialogs.SystemRenameUnavailableDialog
 import eu.darken.capod.monitor.core.PodDevice
 import eu.darken.capod.monitor.core.firstSeenFormatted
@@ -637,27 +636,11 @@ fun DeviceSettingsScreen(
                     }
                 }
 
-                // PME Config visualization (debug only, opcode 0x53).
-                // PME = Personal Medical Equipment (hearing-aid band gains for iOS
-                // 18.1+ AirPods Pro 2 hearing-aid mode). The bar chart reuses the
-                // EQ visualization because the data shape (per-ear × per-profile ×
-                // band gains) renders identically; hidden on all-zero payloads, which
-                // just mean the user hasn't configured a hearing-aid profile yet.
-                val pmeConfig = device.pmeConfig
-                if (eu.darken.capod.BuildConfig.DEBUG &&
-                    pmeConfig != null &&
-                    pmeConfig.sets.isNotEmpty() &&
-                    !pmeConfig.isAllZero
-                ) {
-                    item("eq_section") {
-                        SettingsSection(title = stringResource(R.string.device_settings_eq_label)) {
-                            EqBarsChart(
-                                sets = pmeConfig.sets,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            )
-                        }
-                    }
-                }
+                // The debug-only PME (0x53, hearing-aid band gains) bar chart used to be rendered
+                // here as a second section titled "Equalizer", which read as a duplicate equalizer
+                // card with a squeezed 8-bar chart. It is diagnostic data, not a user setting, so it
+                // no longer appears in the settings list at all; the values stay available in logs
+                // (see AapDeviceInfoDiagnostics) for the hearing-aid work.
             }
 
             // Advanced control channel not usable right now. Deliberately NOT gated on live BLE data:
