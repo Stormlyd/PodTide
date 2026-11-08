@@ -2,6 +2,22 @@
 
 PodTide 是一款面向 Android 的开源 AirPods 伴侣应用，提供电量显示、连接辅助和耳机控制。应用基于 [CAPod](https://github.com/d4rken-org/capod)，并参考 [LibrePods](https://github.com/librepods-org/librepods) 的协议与功能实现。
 
+<div align="center">
+
+<br>
+
+<a href="https://podtide-download.stormlyd.workers.dev" target="_blank">
+  <img src="https://img.shields.io/badge/立即下载_PodTide-⭐_点亮_Star_解锁下载-2da44e?style=for-the-badge&logo=github&logoColor=white" alt="下载 PodTide" height="48">
+</a>
+
+<br><br>
+
+> 💡 **下载通道说明**：开源维护不易，安装包现已启用 **Star 解锁机制**。点击上方大按钮进入下载页面，点亮一颗 Star 即可立即自动下载最新版本 APK！
+
+</div>
+
+<br>
+
 > **后台运行提示：请检查手机对 PodTide 的电池和后台活动限制。** 为了在应用位于后台时检测耳机、显示弹窗和尝试自动连接，建议在系统应用设置中允许后台活动。不同品牌和系统的名称、路径可能不同。
 >
 > 如果手机提供最近任务锁定功能，请在最近任务中锁定 PodTide，减少应用被系统清理的机会；设置名称及效果因品牌而异。
@@ -12,7 +28,7 @@ PodTide 是一款面向 Android 的开源 AirPods 伴侣应用，提供电量显
 
 - Android 8.0（API 26）及以上；耳机功能取决于型号、固件以及手机蓝牙实现。
 - 首台测试设备是 OPPO Find X9 / ColorOS，耳机为 AirPods Pro 3。项目面向其他满足系统要求的 Android 设备，欢迎反馈具体机型与系统版本。
-- 从 [GitHub Releases](https://github.com/Stormlyd/PodTide/releases) 或 [Gitee 发行版](https://gitee.com/falling-silenceLYD/PodTide/releases) 下载 APK，传到手机并安装。按系统提示授予附近设备、通知及其他与所用功能相关的权限。
+- 推荐通过 [PodTide 专属下载通道（Star 解锁）](https://podtide-download.stormlyd.workers.dev) 或 [GitHub Releases](https://github.com/Stormlyd/PodTide/releases) 获取 APK，传到手机并安装。按系统提示授予附近设备、通知及其他与所用功能相关的权限。
 - 已安装相同签名的 PodTide 开发版可直接覆盖更新。自行编译的 APK 如果签名不同，需要按 Android 的应用安装规则处理。
 
 ## 已有功能
