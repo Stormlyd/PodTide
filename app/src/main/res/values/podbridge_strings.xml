@@ -4,9 +4,9 @@
     <string name="head_gestures_calls">Answer or decline calls</string>
     <string name="head_gestures_calls_description">Nod to answer and shake to decline. Phone state and answer-call permissions are required.</string>
     <string name="head_gestures_media">Custom music controls</string>
-    <string name="head_gestures_media_description">Recognizes gestures while no call is active. This may increase earbud battery use.</string>
-    <string name="head_gestures_nod">Nod action</string>
-    <string name="head_gestures_shake">Shake action</string>
+    <string name="head_gestures_media_description">Double-nod or double-shake within 3s to control music while no call is active (a soft beep confirms the 1st gesture).</string>
+    <string name="head_gestures_nod">Double-nod action</string>
+    <string name="head_gestures_shake">Double-shake action</string>
     <string name="head_gestures_sensitivity">Motion threshold (lower is more sensitive)</string>
     <string name="head_action_none">Do nothing</string>
     <string name="head_action_play_pause">Play / pause</string>

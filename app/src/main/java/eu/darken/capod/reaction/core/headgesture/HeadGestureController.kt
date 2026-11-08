@@ -87,7 +87,9 @@ class HeadGestureController @Inject constructor(
     }
 
     fun resetPreviewCounts(token: Long) {
-        if (previewDemand.request.value?.token == token) _preview.update { it.copy(nods = 0, shakes = 0) }
+        if (previewDemand.request.value?.token == token) {
+            _preview.update { it.copy(nods = 0, shakes = 0, doubleNods = 0, doubleShakes = 0, comboProgress = null) }
+        }
     }
 
     fun setPreviewSound(token: Long, enabled: Boolean) {
@@ -127,11 +129,26 @@ class HeadGestureController @Inject constructor(
         var consumedCall = false
         var trackingCallState = -1
         val posePreview = HeadPosePreview()
+        val actionPose = HeadPosePreview()
         var previewToken: Long? = null
         var previewReceiving = false
         var appliedCalibration = calibrationVersion.value
         var previewDetector = HeadGestureDetector()
         var lastPreviewReceivedAt: Long? = null
+        var pendingPreviewGesture: HeadGesture? = null
+        var pendingPreviewGestureAt = 0L
+        var pendingMediaGesture: HeadGesture? = null
+        var pendingMediaGestureAt = 0L
+
+        fun resetMediaCombo() {
+            pendingMediaGesture = null
+            pendingMediaGestureAt = 0L
+        }
+
+        fun resetPreviewCombo() {
+            pendingPreviewGesture = null
+            pendingPreviewGestureAt = 0L
+        }
 
         fun waitingReason(device: PodDevice?, profile: String): Int = when {
             device?.profileId != profile -> R.string.head_preview_choose_primary
@@ -141,7 +158,12 @@ class HeadGestureController @Inject constructor(
             else -> R.string.head_preview_waiting_samples
         }
 
-        launch { calls().collect { state -> if (state != TelephonyManager.CALL_STATE_RINGING) consumedCall = false; phoneState.value = state } }
+        fun refreshPhoneState(): Int = callState().also { state ->
+            if (state != TelephonyManager.CALL_STATE_RINGING) consumedCall = false
+            phoneState.value = state
+        }
+
+        launch { calls().collect { refreshPhoneState() } }
         launch {
             combine(monitor.primaryDevice(), settings.changes, phoneState, previewDemand.request, calibrationVersion) { device, _, call, request, calibration ->
                 Triple(device, call, request) to calibration
@@ -161,12 +183,14 @@ class HeadGestureController @Inject constructor(
                     val canPreview = request != null && target != null && !paused
                     if (request?.token != previewToken || canPreview != previewReceiving || calibration != appliedCalibration) {
                         detector = HeadGestureDetector(config?.threshold ?: 1_000)
+                        resetMediaCombo()
                         previewToken = request?.token
                         previewReceiving = canPreview
                         appliedCalibration = calibration
                         posePreview.stop()
                         lastPreviewReceivedAt = null
                         previewDetector = HeadGestureDetector(config?.threshold ?: 1_000)
+                        resetPreviewCombo()
                         if (canPreview) {
                             posePreview.start(SystemClock.elapsedRealtime())
                             if (calibration != 0L) posePreview.calibrate(SystemClock.elapsedRealtime())
@@ -187,17 +211,21 @@ class HeadGestureController @Inject constructor(
                     if (stream.isReady && stream.target == SensorTarget(target ?: "", service) && config == activeConfig && call == trackingCallState) return@collect
                     streamStartedAtMs = Long.MAX_VALUE
                     stream.stop()
+                    actionPose.stop()
                     activeConfig = config
                     ringingStartedAtMs = if (call == TelephonyManager.CALL_STATE_RINGING) SystemClock.elapsedRealtime() else Long.MAX_VALUE
                     trackingCallState = call
                     detector = HeadGestureDetector(config?.threshold ?: 1_000)
+                    resetMediaCombo()
                     if (target != null) {
                         try {
                             streamStartedAtMs = SystemClock.elapsedRealtime()
+                            actionPose.start(streamStartedAtMs)
                             stream.start(SensorTarget(target, service))
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (e: Exception) {
                             log(tag, WARN) { "Tracking start failed: $e" }
+                            actionPose.stop()
                             if (request != null && _preview.value.token == request.token) {
                                 posePreview.stop()
                                 previewReceiving = false
@@ -213,12 +241,14 @@ class HeadGestureController @Inject constructor(
                 if (!stream.isReady || address != stream.target?.address) return@collect
                 val now = SystemClock.elapsedRealtime()
                 if (sample.receivedAtMs <= streamStartedAtMs || sample.receivedAtMs > now || now - sample.receivedAtMs >= 2_000) return@collect
-                val call = callState()
+                val call = if (phoneState.value == -1) refreshPhoneState() else phoneState.value
                 val request = previewDemand.request.value
                 if (previewDemand.epoch != detectorModeEpoch) {
                     detectorModeEpoch = previewDemand.epoch
                     detector = HeadGestureDetector(activeConfig?.threshold ?: 1_000)
+                    resetMediaCombo()
                 }
+                actionPose.receive(sample, now)
                 if (request != null && _preview.value.token == request.token &&
                     call in setOf(TelephonyManager.CALL_STATE_RINGING, TelephonyManager.CALL_STATE_OFFHOOK)) {
                     feedback.release()
@@ -233,7 +263,29 @@ class HeadGestureController @Inject constructor(
                     posePreview.receive(sample, now)) {
                     lastPreviewReceivedAt = sample.receivedAtMs
                     val gesture = if (posePreview.state.status == HeadPreviewStatus.LIVE && call == TelephonyManager.CALL_STATE_IDLE)
-                        previewDetector.consume(sample.motion, sample.receivedAtMs) else null
+                        previewDetector.consume(sample, posePreview.state.pose) else null
+                    var completedDouble: HeadGesture? = null
+                    if (gesture != null) {
+                        val isSecond = pendingPreviewGesture == gesture &&
+                            sample.receivedAtMs >= pendingPreviewGestureAt &&
+                            sample.receivedAtMs - pendingPreviewGestureAt <= 3_000L
+                        if (isSecond) {
+                            completedDouble = gesture
+                            resetPreviewCombo()
+                        } else {
+                            pendingPreviewGesture = gesture
+                            pendingPreviewGestureAt = sample.receivedAtMs
+                        }
+                    } else if (pendingPreviewGesture != null && sample.receivedAtMs - pendingPreviewGestureAt > 3_000L) {
+                        resetPreviewCombo()
+                    }
+                    val comboHint = when (pendingPreviewGesture) {
+                        HeadGesture.NOD -> "已识别第 1 次点头 (1/2)，请在 3 秒内再点一次"
+                        HeadGesture.SHAKE -> "已识别第 1 次摇头 (1/2)，请在 3 秒内再摇一次"
+                        null -> if (completedDouble == HeadGesture.NOD) "✓ 已完成连续两次点头 (2/2)！"
+                        else if (completedDouble == HeadGesture.SHAKE) "✓ 已完成连续两次摇头 (2/2)！"
+                        else null
+                    }
                     _preview.update { old -> old.copy(state = posePreview.state, lastSampleAgeMs = now - sample.receivedAtMs,
                         messageRes = when {
                             call == -1 -> R.string.head_preview_unknown_call
@@ -241,9 +293,12 @@ class HeadGestureController @Inject constructor(
                             else -> null
                         },
                         nods = old.nods + if (gesture == HeadGesture.NOD) 1 else 0,
-                        shakes = old.shakes + if (gesture == HeadGesture.SHAKE) 1 else 0) }
+                        shakes = old.shakes + if (gesture == HeadGesture.SHAKE) 1 else 0,
+                        doubleNods = old.doubleNods + if (completedDouble == HeadGesture.NOD) 1 else 0,
+                        doubleShakes = old.doubleShakes + if (completedDouble == HeadGesture.SHAKE) 1 else 0,
+                        comboProgress = comboHint ?: old.comboProgress) }
                     if (gesture != null && _preview.value.soundEnabled && previewDemand.request.value?.token == request.token) {
-                        feedback.play()
+                        if (completedDouble != null) feedback.playConfirm() else feedback.play()
                     }
                 }
                 val config = activeConfig ?: return@collect
@@ -254,7 +309,20 @@ class HeadGestureController @Inject constructor(
                 if (ringing && (!config.enabled || sample.receivedAtMs <= ringingStartedAtMs ||
                     !previewDemand.acceptsCallReport(sample.receivedAtMs, now))) return@collect
                 if ((ringing && (!config.calls || consumedCall)) || (!ringing && !config.media)) return@collect
-                val gesture = detector.consume(sample.motion, sample.receivedAtMs) ?: return@collect
+                val gesture = detector.consume(sample, actionPose.state.pose) ?: return@collect
+                if (!ringing) {
+                    val withinWindow = pendingMediaGesture == gesture &&
+                        sample.receivedAtMs >= pendingMediaGestureAt &&
+                        sample.receivedAtMs - pendingMediaGestureAt <= 3_000L
+                    if (!withinWindow) {
+                        pendingMediaGesture = gesture
+                        pendingMediaGestureAt = sample.receivedAtMs
+                        feedback.play()
+                        return@collect
+                    }
+                    resetMediaCombo()
+                    feedback.playConfirm()
+                }
                 val action = GestureActionResolver.resolve(gesture, ringing, config.nod, config.shake)
                 try {
                     if (ringing && action in setOf(GestureAction.ANSWER, GestureAction.DECLINE)) consumedCall = true
@@ -274,9 +342,13 @@ class HeadGestureController @Inject constructor(
                     calibrationVersion.value != appliedCalibration || _preview.value.token != request.token) continue
                 val now = SystemClock.elapsedRealtime()
                 posePreview.tick(now)
+                val call = if (phoneState.value == -1) refreshPhoneState() else phoneState.value
                 _preview.update { old -> old.copy(state = posePreview.state,
                     lastSampleAgeMs = lastPreviewReceivedAt?.let { now - it },
-                    messageRes = if (posePreview.state.status == HeadPreviewStatus.STALE) R.string.head_preview_stale else old.messageRes) }
+                    messageRes = if (posePreview.state.status == HeadPreviewStatus.STALE) R.string.head_preview_stale
+                    else if (call != -1 && old.messageRes == R.string.head_preview_unknown_call) {
+                        if (posePreview.state.status == HeadPreviewStatus.CALIBRATING) R.string.head_preview_calibrating else null
+                    } else old.messageRes) }
             }
         }
         try {

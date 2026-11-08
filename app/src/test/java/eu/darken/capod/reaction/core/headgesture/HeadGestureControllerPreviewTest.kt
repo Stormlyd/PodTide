@@ -156,6 +156,13 @@ class HeadGestureControllerPreviewTest {
             queued(if (i % 2 == 0) 1400 else -1400)
             runCurrent()
         }
+        coVerify(exactly = 0) { media.sendPlayPause() }
+        ShadowSystemClock.advanceBy(Duration.ofMillis(650))
+        repeat(3) { i ->
+            ShadowSystemClock.advanceBy(Duration.ofMillis(20))
+            queued(if (i % 2 == 0) 1400 else -1400)
+            runCurrent()
+        }
         coVerify(exactly = 1) { media.sendPlayPause() }
         job.cancelAndJoin()
     }
@@ -275,6 +282,9 @@ class HeadGestureControllerPreviewTest {
         send(1400, oldTimestamp)
         coVerify(exactly = 0) { media.sendPlayPause() }
         ShadowSystemClock.advanceBy(Duration.ofMillis(20))
+        send(1400); send(-1400); send(1400)
+        coVerify(exactly = 0) { media.sendPlayPause() }
+        ShadowSystemClock.advanceBy(Duration.ofMillis(650))
         send(1400); send(-1400); send(1400)
         coVerify(exactly = 1) { media.sendPlayPause() }
         job.cancel()

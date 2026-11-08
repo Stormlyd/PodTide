@@ -234,10 +234,11 @@ class MediaControl @Inject constructor(
         // strand it unpaired or the media session keeps seeing a held key. Bounded — this defers
         // cancellation by at most the 100ms delay below.
         log(TAG) { "Sending up+down KeyEvent: $keyCode" }
-        val eventTime = timeSource.uptimeMillis()
-        audioManager.dispatchMediaKeyEvent(KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, keyCode, 0))
+        val downTime = timeSource.uptimeMillis()
+        audioManager.dispatchMediaKeyEvent(KeyEvent(downTime, downTime, KeyEvent.ACTION_DOWN, keyCode, 0))
         delay(100)
-        audioManager.dispatchMediaKeyEvent(KeyEvent(eventTime + 200, eventTime + 200, KeyEvent.ACTION_UP, keyCode, 0))
+        val upTime = timeSource.uptimeMillis().coerceAtLeast(downTime + 100)
+        audioManager.dispatchMediaKeyEvent(KeyEvent(downTime, upTime, KeyEvent.ACTION_UP, keyCode, 0))
     }
 
     fun adjustVolumeUp() {

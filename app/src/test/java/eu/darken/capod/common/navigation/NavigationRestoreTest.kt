@@ -21,14 +21,19 @@ class NavigationRestoreTest : BaseComposeRobolectricTest() {
         }
     }
 
-    @Test fun `restored head preview returns to existing device settings with normal Back`() {
-        assertReturnsToSettings(Nav.Main.HeadPreview("owned"))
+    @Test fun `restored head preview remains accessible with normal Back`() {
+        val restored = restoreLegacyStack(Nav.Main.Overview, Nav.Main.DeviceSettings("owned"), Nav.Main.HeadPreview("owned"))
+        composeRule.runOnIdle {
+            assertEquals(Nav.Main.HeadPreview("owned"), restored.stack().last())
+            assertTrue(restored.controller.up())
+            assertEquals(Nav.Main.DeviceSettings("owned"), restored.stack().last())
+        }
     }
 
     @Test fun `retired entries below the current page cannot reappear when navigating Back`() {
         val restored = restoreLegacyStack(
             Nav.Main.Overview, Nav.Settings.General,
-            Nav.Main.HeadPreview("owned"), Nav.Settings.Support,
+            Nav.Settings.ContactSupport, Nav.Settings.Support,
         )
         composeRule.runOnIdle {
             assertEquals(listOf(Nav.Main.Overview, Nav.Settings.General, Nav.Settings.Support), restored.stack().toList())
@@ -41,7 +46,7 @@ class NavigationRestoreTest : BaseComposeRobolectricTest() {
     }
 
     @Test fun `an entirely retired restored stack falls back to Overview without a navigation loop`() {
-        val restored = restoreLegacyStack(Nav.Main.HeadPreview("owned"), Nav.Settings.ContactSupport)
+        val restored = restoreLegacyStack(Nav.Settings.ContactSupport)
         composeRule.runOnIdle {
             assertEquals(listOf(Nav.Main.Overview), restored.stack().toList())
             repeat(3) { restored.controller.setup(restored.stack()) }

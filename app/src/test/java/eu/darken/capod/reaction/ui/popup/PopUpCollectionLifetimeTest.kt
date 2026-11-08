@@ -203,7 +203,7 @@ class PopUpCollectionLifetimeTest {
         } finally { service.onDestroy(); runCurrent() }
     }
 
-    @Test fun `public release never subscribes sensors with old enabled settings while reconnect and popup remain active`() = runTest {
+    @Test fun `monitor subscribes head gestures while keeping heart rate on-demand and reconnect and popup active`() = runTest {
         val settings = HeadGestureSettings(context)
         val oldConfig = HeadGestureConfig(enabled = true, calls = true, media = true, threshold = 1_600)
         settings.update("owned", oldConfig)
@@ -217,14 +217,14 @@ class PopUpCollectionLifetimeTest {
             assertEquals(1, attached.size)
             assertEquals(1, reconnectCollections)
             assertMonitoringActive(service)
-            assertEquals("Hidden head gestures must not collect in the background", 0, headCollections)
-            assertEquals("Hidden heart rate must not collect in the background", 0, heartCollections)
+            assertEquals("Head gestures must collect in MonitorService", 1, headCollections)
+            assertEquals("Heart rate stays on-demand from its screen", 0, heartCollections)
 
             service.onStartCommand(MonitorService.intent(context, forceStart = true), 0, 2)
             runCurrent()
             assertEquals(1, attached.size)
             assertEquals(2, reconnectCollections)
-            assertEquals(0, headCollections)
+            assertEquals(2, headCollections)
             assertEquals(0, heartCollections)
         } finally {
             service.onDestroy()

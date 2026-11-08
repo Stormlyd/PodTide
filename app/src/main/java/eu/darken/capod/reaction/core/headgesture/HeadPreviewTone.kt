@@ -22,6 +22,16 @@ class HeadPreviewTone @Inject constructor() {
         }
     }
 
+    fun playConfirm() {
+        try {
+            if (tone == null) tone = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 55)
+            tone?.startTone(ToneGenerator.TONE_PROP_ACK, 150)
+        } catch (failure: Exception) {
+            log(tag, WARN) { "Confirm tone failed: $failure" }
+            release()
+        }
+    }
+
     fun release() {
         try { tone?.release() }
         catch (failure: Exception) { log(tag, WARN) { "Preview tone release failed: $failure" } }

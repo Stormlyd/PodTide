@@ -60,6 +60,7 @@ import eu.darken.capod.main.ui.devicesettings.cards.CustomEqCard
 import eu.darken.capod.main.ui.devicesettings.cards.HeadGestureCard
 import eu.darken.capod.main.ui.devicesettings.cards.DeviceInfoBottomSheet
 import eu.darken.capod.main.ui.devicesettings.cards.DeviceInfoCard
+import eu.darken.capod.main.ui.headpreview.HeadPreviewMenuItem
 import eu.darken.capod.main.ui.heartrate.HeartRateMenuItem
 import eu.darken.capod.main.ui.devicesettings.cards.NoiseControlCard
 import eu.darken.capod.main.ui.devicesettings.cards.NotConnectedCard
@@ -505,15 +506,7 @@ fun DeviceSettingsScreen(
                 (device?.model ?: state.profileModel) != eu.darken.capod.pods.core.apple.PodModel.UNKNOWN
             ) {
                 item("head_preview_entry") {
-                    SettingsSection {
-                        SettingsPreferenceItem(
-                            icon = Icons.TwoTone.Headphones,
-                            title = stringResource(R.string.head_preview_title),
-                            subtitle = stringResource(R.string.head_preview_entry_description),
-                            onClick = onHeadPreviewClick,
-                            modifier = Modifier.testTag("head_preview_entry"),
-                        )
-                    }
+                    HeadPreviewMenuItem(onClick = onHeadPreviewClick)
                 }
             }
 

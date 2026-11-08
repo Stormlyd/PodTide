@@ -1,5 +1,9 @@
 package eu.darken.capod.main.ui.headpreview
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,6 +30,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -57,13 +62,29 @@ fun HeadPreviewScreenHost(profileId: String, vm: HeadPreviewViewModel = hiltView
     val state by vm.controller.preview.collectAsStateWithLifecycle()
     val navigation = LocalNavigationController.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        vm.start(profileId)
+    }
     DisposableEffect(lifecycleOwner, profileId) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) vm.stop() }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer); vm.stop() }
     }
-    HeadPreviewScreen(state, { vm.stop(); navigation?.up() }, { vm.start(profileId) }, vm::stop,
-        vm::recalibrate, vm::resetCounts, vm::setSound)
+    HeadPreviewScreen(
+        state = state,
+        onNavigateUp = { vm.stop(); navigation?.up() },
+        onStart = {
+            if (context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+                permissionLauncher.launch(arrayOf(Manifest.permission.READ_PHONE_STATE))
+            }
+            vm.start(profileId)
+        },
+        onStop = vm::stop,
+        onRecalibrate = vm::recalibrate,
+        onResetCounts = vm::resetCounts,
+        onSoundChange = vm::setSound,
+    )
 }
 
 @Composable
@@ -107,8 +128,8 @@ fun HeadPreviewScreen(
                         Canvas(Modifier.size(100.dp).testTag("head_preview_pose_indicator")) {
                             drawCircle(ring, radius = size.minDimension * .44f, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
                             drawCircle(marker, radius = 6.dp.toPx(), center = Offset(
-                                size.width / 2f + (pose.yaw / 30f).coerceIn(-1f, 1f) * size.width * .38f,
-                                size.height / 2f + (pose.pitch / 30f).coerceIn(-1f, 1f) * size.height * .38f,
+                                size.width / 2f + (pose.yaw / 12f).coerceIn(-1f, 1f) * size.width * .38f,
+                                size.height / 2f + (pose.pitch / 12f).coerceIn(-1f, 1f) * size.height * .38f,
                             ))
                         }
                         Text(stringResource(R.string.head_preview_pitch, pose.pitch))
@@ -119,6 +140,8 @@ fun HeadPreviewScreen(
             item { state.state.motion?.let { Text(stringResource(R.string.head_preview_motion, it.horizontal, it.vertical)) } }
             item { state.lastSampleAgeMs?.let { Text(stringResource(R.string.head_preview_age, it)) } }
             item { Text(stringResource(R.string.head_preview_counts, state.nods, state.shakes)) }
+            item { Text(stringResource(R.string.head_preview_double_counts, state.doubleNods, state.doubleShakes)) }
+            item { state.comboProgress?.let { Text(it, color = MaterialTheme.colorScheme.primary) } }
             item { OutlinedButton(onClick = onResetCounts, enabled = state.requested) { Text(stringResource(R.string.head_preview_reset_counts)) } }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

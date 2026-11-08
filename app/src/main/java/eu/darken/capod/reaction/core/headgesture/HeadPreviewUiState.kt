@@ -9,6 +9,9 @@ data class HeadPreviewUiState(
     val lastSampleAgeMs: Long? = null,
     val nods: Int = 0,
     val shakes: Int = 0,
+    val doubleNods: Int = 0,
+    val doubleShakes: Int = 0,
+    val comboProgress: String? = null,
     val soundEnabled: Boolean = false,
     @StringRes val messageRes: Int? = null,
 )

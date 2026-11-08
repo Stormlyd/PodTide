@@ -11,9 +11,12 @@ class HeadPosePreview {
     private var lastReport: Long? = null
     private val neutralSamples = mutableListOf<Triple<Int, Int, Int>>()
     private var neutral: Pair<Float, Float>? = null
+    private var prevRotation: Pair<Int, Int>? = null
+    private var stillFrames = 0
 
     fun start(nowMs: Long) {
         startedAt = nowMs; lastReport = null; neutralSamples.clear(); neutral = null
+        prevRotation = null; stillFrames = 0
         state = HeadPreviewState(HeadPreviewStatus.WAITING)
     }
     fun calibrate(nowMs: Long) {
@@ -23,6 +26,7 @@ class HeadPosePreview {
     }
     fun stop() {
         neutralSamples.clear(); neutral = null; lastReport = null
+        prevRotation = null; stillFrames = 0
         state = HeadPreviewState()
     }
     fun receive(sample: HeadTrackingSample, nowMs: Long): Boolean {
@@ -37,8 +41,27 @@ class HeadPosePreview {
                 neutralSamples.maxOf { it.third } - neutralSamples.minOf { it.third } > 1_200) {
                 neutralSamples.clear(); neutralSamples += Triple(sample.rotationA, sample.rotationB, sample.rotationC)
             }
-            if (neutralSamples.size >= 10) neutral = neutralSamples.map { it.second }.average().toFloat() to neutralSamples.map { it.third }.average().toFloat()
+            if (neutralSamples.size >= 10) {
+                neutral = neutralSamples.map { it.second }.average().toFloat() to neutralSamples.map { it.third }.average().toFloat()
+            }
+        } else {
+            val prev = prevRotation
+            if (prev != null &&
+                kotlin.math.abs(sample.rotationB - prev.first) <= 220 &&
+                kotlin.math.abs(sample.rotationC - prev.second) <= 220 &&
+                kotlin.math.abs(sample.motion.horizontal) <= 300 &&
+                kotlin.math.abs(sample.motion.vertical) <= 300
+            ) {
+                stillFrames++
+                val alpha = if (stillFrames >= 8) 0.08f else 0.02f
+                val current = neutral!!
+                neutral = (current.first + (sample.rotationB - current.first) * alpha) to
+                    (current.second + (sample.rotationC - current.second) * alpha)
+            } else {
+                stillFrames = 0
+            }
         }
+        prevRotation = sample.rotationB to sample.rotationC
         val pose = neutral?.let { baseline ->
             val b = sample.rotationB - baseline.first
             val c = sample.rotationC - baseline.second

@@ -19,12 +19,13 @@
     <string name="head_preview_stale">暂无新报告，已隐藏姿态</string>
     <string name="head_preview_unknown_call">无法确认通话状态，已禁用动作和提示音</string>
     <string name="head_preview_experimental">仅为实验性相对姿态估计。坐标方向与固件支持仍需真机验证。</string>
-    <string name="head_preview_safe">测试模式只反馈识别结果，不执行音乐操作。</string>
+    <string name="head_preview_safe">测试模式只反馈识别结果，不执行音乐操作（音乐控制需在 3 秒内连续两次点头或摇头）。</string>
     <string name="head_preview_pitch">相对俯仰：%1$.1f°</string>
     <string name="head_preview_yaw">相对偏航：%1$.1f°</string>
     <string name="head_preview_motion">原始运动 水平 %1$d · 垂直 %2$d</string>
     <string name="head_preview_age">最近报告：%1$d 毫秒前</string>
-    <string name="head_preview_counts">点头 %1$d 次 · 摇头 %2$d 次</string>
+    <string name="head_preview_counts">单次识别：点头 %1$d 次 · 摇头 %2$d 次</string>
+    <string name="head_preview_double_counts">音乐触发（连续两次）：双点头 %1$d 次 · 双摇头 %2$d 次</string>
     <string name="head_preview_progress">校准：%1$d / 10</string>
     <string name="head_preview_no_measurement">暂无实时测量</string>
 </resources>

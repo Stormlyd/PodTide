@@ -19,12 +19,13 @@
     <string name="head_preview_stale">No recent report; pose hidden</string>
     <string name="head_preview_unknown_call">Phone state unknown; actions and tones disabled</string>
     <string name="head_preview_experimental">Experimental relative pose estimate. Axis direction and firmware support need device verification.</string>
-    <string name="head_preview_safe">Test mode recognizes gestures without music actions.</string>
+    <string name="head_preview_safe">Test mode recognizes gestures without music actions (music controls require 2 consecutive nods or shakes within 3s).</string>
     <string name="head_preview_pitch">Relative pitch: %1$.1f°</string>
     <string name="head_preview_yaw">Relative yaw: %1$.1f°</string>
     <string name="head_preview_motion">Raw motion H %1$d · V %2$d</string>
     <string name="head_preview_age">Last report: %1$d ms ago</string>
-    <string name="head_preview_counts">Nods %1$d · Shakes %2$d</string>
+    <string name="head_preview_counts">Single: Nods %1$d · Shakes %2$d</string>
+    <string name="head_preview_double_counts">Music trigger (2x combo): Double-nod %1$d · Double-shake %2$d</string>
     <string name="head_preview_progress">Calibration: %1$d / 10</string>
     <string name="head_preview_no_measurement">No live measurement</string>
 </resources>

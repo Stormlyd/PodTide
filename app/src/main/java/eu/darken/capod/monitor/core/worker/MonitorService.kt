@@ -397,8 +397,10 @@ class MonitorService : Service() {
             .catch { log(TAG, WARN) { "autoConnect failed:\n${it.asLog()}" } }
             .launchIn(monitorScope)
 
-        // Sensor features are deferred for the public release. Do not subscribe here: a saved
-        // enabled gesture preference must not keep an invisible sensor/action collector active.
+        headGestures.monitor()
+            .setupCommonEventHandlers(TAG) { "headGestures" }
+            .catch { log(TAG, WARN) { "headGestures failed:\n${it.asLog()}" } }
+            .launchIn(monitorScope)
 
         sleepReaction.monitor()
             .setupCommonEventHandlers(TAG) { "sleepReaction" }

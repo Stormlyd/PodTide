@@ -5,9 +5,9 @@
     <string name="head_gestures_calls">来电接听与拒接</string>
     <string name="head_gestures_calls_description">点头接听，摇头拒接。需要电话状态和接听电话权限。</string>
     <string name="head_gestures_media">自定义音乐控制</string>
-    <string name="head_gestures_media_description">在没有通话时持续识别手势，可能增加耳机耗电。</string>
-    <string name="head_gestures_nod">点头操作</string>
-    <string name="head_gestures_shake">摇头操作</string>
+    <string name="head_gestures_media_description">无通话时连续两次点头或摇头触发音乐控制（第 1 次会有轻提示音，3 秒内完成第 2 次即触发）。</string>
+    <string name="head_gestures_nod">连续两次点头操作</string>
+    <string name="head_gestures_shake">连续两次摇头操作</string>
     <string name="head_gestures_sensitivity">动作阈值（数值越小越灵敏）</string>
     <string name="head_action_none">不执行</string>
     <string name="head_action_play_pause">播放／暂停</string>

@@ -34,4 +34,39 @@ class HeadGestureDetectorTest {
         GestureActionResolver.resolve(HeadGesture.SHAKE, true, GestureAction.NEXT, GestureAction.PREVIOUS) shouldBe GestureAction.DECLINE
         GestureActionResolver.resolve(HeadGesture.NOD, false, GestureAction.NEXT, GestureAction.PREVIOUS) shouldBe GestureAction.NEXT
     }
+
+    @Test
+    fun `pose trajectory detects nod and shake when raw motion delta stays zero`() {
+        val detector = HeadGestureDetector()
+        val nodPitches = listOf(0f, 4f, 9f, 13f, 6f, -2f, 1f)
+        val nodEvents = nodPitches.mapIndexedNotNull { i, pitch ->
+            val t = 100L + i * 60L
+            detector.consume(HeadTrackingSample(HeadMotion(0, 0), 0, 0, 0, t), HeadPose(pitch = pitch, yaw = 0f))
+        }
+        nodEvents shouldBe listOf(HeadGesture.NOD)
+
+        // Upward-only head tilt (bottom to top, then returning to center) must NOT count as a downward nod
+        val upwardOnlyPitches = listOf(0f, -4f, -9f, -13f, -6f, -1f, 0f)
+        val upwardEvents = upwardOnlyPitches.mapIndexedNotNull { i, pitch ->
+            val t = 1_500L + i * 60L
+            detector.consume(HeadTrackingSample(HeadMotion(0, 0), 0, 0, 0, t), HeadPose(pitch = pitch, yaw = 0f))
+        }
+        upwardEvents shouldBe emptyList()
+
+        // Single-side head turn (center -> left -> center) must NOT count as a shake
+        val oneSideYaws = listOf(0f, -5f, -12f, -4f, 0f)
+        val oneSideEvents = oneSideYaws.mapIndexedNotNull { i, yaw ->
+            val t = 2_200L + i * 60L
+            detector.consume(HeadTrackingSample(HeadMotion(0, 0), 0, 0, 0, t), HeadPose(pitch = 0f, yaw = yaw))
+        }
+        oneSideEvents shouldBe emptyList()
+
+        // Bilateral shake (center -> left -> right -> center) counts as a shake
+        val shakeYaws = listOf(0f, -4f, -8f, -2f, 5f, 2f, 0f)
+        val shakeEvents = shakeYaws.mapIndexedNotNull { i, yaw ->
+            val t = 3_000L + i * 60L
+            detector.consume(HeadTrackingSample(HeadMotion(0, 0), 0, 0, 0, t), HeadPose(pitch = 0f, yaw = yaw))
+        }
+        shakeEvents shouldBe listOf(HeadGesture.SHAKE)
+    }
 }
