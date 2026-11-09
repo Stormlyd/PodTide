@@ -28,10 +28,13 @@ import eu.darken.capod.pods.core.apple.PodModel
 import org.junit.Test
 import testhelpers.compose.BaseComposeRobolectricTest
 
+import org.robolectric.annotation.Config
+
 /**
  * The mock case battery resolves at decile granularity, so a 4.0-charge spec (AirPods Pro 2) puts
  * 30% wholly above a full charge, 10% wholly below it, and 20% astride it.
  */
+@Config(qualifiers = "w400dp-h1000dp")
 class CaseChargesLineTest : BaseComposeRobolectricTest() {
 
     private val context: Context

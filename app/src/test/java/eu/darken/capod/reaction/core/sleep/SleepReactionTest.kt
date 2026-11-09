@@ -37,13 +37,18 @@ class SleepReactionTest : BaseTest() {
     private lateinit var notifications: SleepReactionNotifications
     private lateinit var timeSource: TestTimeSource
 
-    private fun mockPodDevice(address: BluetoothAddress, label: String? = "Custom Label"): PodDevice {
+    private fun mockPodDevice(
+        address: BluetoothAddress,
+        label: String? = "Custom Label",
+        inEar: Boolean = true,
+    ): PodDevice {
         val addrValue = address
         val labelValue = label
         return mockk(relaxed = true) {
             every { profileId } returns addrValue
             every { this@mockk.address } returns addrValue
             every { this@mockk.label } returns labelValue
+            every { isEitherPodInEar } returns inEar
             every { model } returns PodModel.AIRPODS_PRO3
         }
     }
@@ -65,16 +70,19 @@ class SleepReactionTest : BaseTest() {
         timeSource = TestTimeSource()
     }
 
-    private fun createReaction(): SleepReaction = SleepReaction(
+    private fun createReaction(confirmCount: Int = 1, confirmSpanMs: Long = 0L): SleepReaction = SleepReaction(
         aapManager = aapManager,
         deviceMonitor = deviceMonitor,
         mediaControl = mediaControl,
         notifications = notifications,
         timeSource = timeSource,
-    )
+    ).apply {
+        this.confirmCount = confirmCount
+        this.confirmSpanMs = confirmSpanMs
+    }
 
-    private fun TestScope.launchReaction(): kotlinx.coroutines.Job =
-        createReaction().monitor().launchIn(this)
+    private fun TestScope.launchReaction(confirmCount: Int = 1, confirmSpanMs: Long = 0L): kotlinx.coroutines.Job =
+        createReaction(confirmCount, confirmSpanMs).monitor().launchIn(this)
 
     @Test
     fun `primary device match triggers pause and notification`() = runTest(UnconfinedTestDispatcher()) {
@@ -226,6 +234,44 @@ class SleepReactionTest : BaseTest() {
         runCurrent()
 
         // Now the real primary-device event arrives immediately after — must fire.
+        incomingSleepFlow.emit(primaryAddress)
+        runCurrent()
+
+        coVerify(exactly = 1) { mediaControl.sendPause() }
+        verify(exactly = 1) { notifications.show("Custom Label") }
+        job.cancel()
+    }
+
+    @Test
+    fun `earbuds not in ear ignores sleep event`() = runTest(UnconfinedTestDispatcher()) {
+        devicesFlow.value = listOf(mockPodDevice(primaryAddress, inEar = false))
+        val job = launchReaction()
+
+        incomingSleepFlow.emit(primaryAddress)
+        runCurrent()
+
+        coVerify(exactly = 0) { mediaControl.sendPause() }
+        verify(exactly = 0) { notifications.show(any()) }
+        job.cancel()
+    }
+
+    @Test
+    fun `default confirmation requires multiple events spanning threshold`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launchReaction(confirmCount = SleepReaction.CONFIRM_COUNT, confirmSpanMs = SleepReaction.CONFIRM_SPAN_MS)
+
+        // First event: pending
+        incomingSleepFlow.emit(primaryAddress)
+        runCurrent()
+        coVerify(exactly = 0) { mediaControl.sendPause() }
+
+        // Second event too soon (< 2 minutes): still pending
+        timeSource.advanceBy(Duration.ofMinutes(1))
+        incomingSleepFlow.emit(primaryAddress)
+        runCurrent()
+        coVerify(exactly = 0) { mediaControl.sendPause() }
+
+        // Third event after threshold (total 2 min 10s from first): confirmed!
+        timeSource.advanceBy(Duration.ofMinutes(1).plusSeconds(10))
         incomingSleepFlow.emit(primaryAddress)
         runCurrent()
 

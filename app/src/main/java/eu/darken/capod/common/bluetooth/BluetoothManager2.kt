@@ -28,6 +28,7 @@ import eu.darken.capod.common.debug.logging.logTag
 import eu.darken.capod.common.flow.setupCommonEventHandlers
 import eu.darken.capod.common.permissions.Permission
 import eu.darken.capod.pods.core.apple.ble.protocol.ContinuityProtocol
+import eu.darken.capod.profiles.core.DeviceProfilesRepo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -65,7 +66,22 @@ class BluetoothManager2 @Inject constructor(
     @ApplicationContext private val context: Context,
     private val manager: BluetoothManager,
     private val timeSource: TimeSource,
+    private val profilesRepo: DeviceProfilesRepo?,
 ) {
+    constructor(
+        appScope: CoroutineScope,
+        dispatcherProvider: DispatcherProvider,
+        context: Context,
+        manager: BluetoothManager,
+        timeSource: TimeSource,
+    ) : this(
+        appScope = appScope,
+        dispatcherProvider = dispatcherProvider,
+        context = context,
+        manager = manager,
+        timeSource = timeSource,
+        profilesRepo = null,
+    )
 
     val adapter: BluetoothAdapter?
         get() = manager.adapter
@@ -281,41 +297,46 @@ class BluetoothManager2 @Inject constructor(
         }
     }
 
+    private val configuredProfileAddresses: Flow<Set<BluetoothAddress>>
+        get() = profilesRepo?.profiles
+            ?.map { profiles -> profiles.mapNotNull { it.address }.toSet() }
+            ?.distinctUntilChanged()
+            ?: flowOf(emptySet())
+
     // Permission revocation during a cold-flow query is handled by retryWhen below.
     @SuppressLint("MissingPermission")
-    val connectedDevices: Flow<List<BluetoothDevice2>> = isBluetoothEnabled
-        .flatMapLatest { enabled ->
+    val connectedDevices: Flow<List<BluetoothDevice2>> = combine(
+        isBluetoothEnabled.flatMapLatest { enabled ->
             if (enabled) combine(monitorProfile(BluetoothProfile.HEADSET), monitorProfile(BluetoothProfile.A2DP)) { headset, audio -> headset + audio }
             else flowOf(emptySet())  // Return empty when Bluetooth is off
+        },
+        configuredProfileAddresses,
+    ) { devices, profileAddresses ->
+        val currentAddresses = devices.map { it.address }
+
+        seenDevicesLock.withLock {
+            val cleanedCache = seenDevicesCache.filterKeys { currentAddresses.contains(it) }
+            seenDevicesCache.clear()
+            seenDevicesCache.putAll(cleanedCache)
         }
-        .map { devices ->
-            val currentAddresses = devices.map { it.address }
 
-            seenDevicesLock.withLock {
-                val cleanedCache = seenDevicesCache.filterKeys { currentAddresses.contains(it) }
-                seenDevicesCache.clear()
-                seenDevicesCache.putAll(cleanedCache)
-            }
-
-            devices
-                .filter { device ->
-                    ContinuityProtocol.BLE_FEATURE_UUIDS.any { feature -> device.hasFeature(feature) }
-                }
-                .map { device ->
-                    BluetoothDevice2(
-                        address = device.address,
-                        name = device.name,
-                        internal = device,
-                        seenFirstAt = seenDevicesLock.withLock {
-                            seenDevicesCache[device.address] ?: run {
-                                val now = timeSource.now()
-                                seenDevicesCache[device.address] = now
-                                now
-                            }
+        devices
+            .filter { device -> isMatchingPodDevice(device, profileAddresses) }
+            .map { device ->
+                BluetoothDevice2(
+                    address = device.address,
+                    name = device.name,
+                    internal = device,
+                    seenFirstAt = seenDevicesLock.withLock {
+                        seenDevicesCache[device.address] ?: run {
+                            val now = timeSource.now()
+                            seenDevicesCache[device.address] = now
+                            now
                         }
-                    )
-                }
-        }
+                    }
+                )
+            }
+    }
         .retryWhen { cause, attempt ->
             log(TAG, WARN) { "connectedDevices Flow failed (attempt ${attempt + 1}): $cause" }
             when {
@@ -565,5 +586,11 @@ class BluetoothManager2 @Inject constructor(
 
     companion object {
         private val TAG = logTag("Bluetooth", "Manager2")
+
+        internal fun isMatchingPodDevice(
+            device: BluetoothDevice,
+            configuredProfileAddresses: Set<BluetoothAddress>,
+        ): Boolean = device.address in configuredProfileAddresses ||
+            ContinuityProtocol.BLE_FEATURE_UUIDS.any { feature -> device.hasFeature(feature) }
     }
 }

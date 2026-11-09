@@ -50,6 +50,7 @@ class GeneralSettingsViewModel @Inject constructor(
         val showTopPopup: Boolean = false,
         val showLiveBatteryInNotification: Boolean = false,
         val monitoringEnabled: Boolean = true,
+        val showIdleNotification: Boolean = true,
     )
 
     // Hard-locked = settled, error-free and no entitlement. Anything else (unsettled seed, error)
@@ -96,7 +97,13 @@ class GeneralSettingsViewModel @Inject constructor(
         )
     }.combine(generalSettings.popUpStylePolicy) { state, policy ->
         state.copy(showBottomPopup = policy.showBottomPopup, showTopPopup = policy.showTopPopup)
+    }.combine(generalSettings.showIdleMonitorNotification.flow) { state, idle ->
+        state.copy(showIdleNotification = idle)
     }.asLiveState()
+
+    fun setShowIdleNotification(enabled: Boolean) {
+        generalSettings.showIdleMonitorNotification.valueBlocking = enabled
+    }
 
     fun setShowBottomPopup(enabled: Boolean) = launch { generalSettings.showBottomPopup.update { enabled } }
 

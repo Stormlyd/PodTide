@@ -83,6 +83,7 @@ fun GeneralSettingsScreenHost(vm: GeneralSettingsViewModel = hiltViewModel()) {
             onShowBottomPopupChanged = { vm.setShowBottomPopup(it) },
             onShowTopPopupChanged = { vm.setShowTopPopup(it) },
             onMonitoringEnabledChanged = { vm.setMonitoringEnabled(it) },
+            onShowIdleNotificationChanged = { vm.setShowIdleNotification(it) },
             onThemeModeSelected = { mode -> vm.setThemeMode(mode) },
             onThemeStyleSelected = { style -> vm.setThemeStyle(style) },
             onThemeColorSelected = { color -> vm.setThemeColor(color) },
@@ -119,6 +120,7 @@ fun GeneralSettingsScreen(
     onShowBottomPopupChanged: (Boolean) -> Unit = {},
     onShowTopPopupChanged: (Boolean) -> Unit = {},
     onMonitoringEnabledChanged: (Boolean) -> Unit = {},
+    onShowIdleNotificationChanged: (Boolean) -> Unit = {},
 ) {
     var showColorDialog by remember { mutableStateOf(false) }
     var helpDialog by remember { mutableStateOf<HelpDialog?>(null) }
@@ -272,6 +274,21 @@ fun GeneralSettingsScreen(
                     subtitle = stringResource(R.string.settings_find_airpods_summary),
                     icon = Icons.TwoTone.Language,
                     onClick = { helpDialog = HelpDialog.FIND_AIRPODS; launchFailed = false },
+                )
+            }
+            item {
+                SettingsBaseItem(
+                    title = stringResource(R.string.settings_monitor_idle_notification_label),
+                    subtitle = stringResource(R.string.settings_monitor_idle_notification_description),
+                    icon = Icons.TwoTone.Notifications,
+                    onClick = { onShowIdleNotificationChanged(!state.showIdleNotification) },
+                    enabled = !state.showLiveBatteryInNotification,
+                    trailingContent = {
+                        Switch(checked = state.showIdleNotification,
+                            enabled = !state.showLiveBatteryInNotification,
+                            onCheckedChange = onShowIdleNotificationChanged,
+                            modifier = Modifier.padding(start = 16.dp))
+                    },
                 )
             }
             item {

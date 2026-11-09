@@ -28,6 +28,10 @@ class SleepReaction @Inject constructor(
 ) {
 
     private val cooldowns = ConcurrentHashMap<BluetoothAddress, Long>()
+    private val pending = ConcurrentHashMap<BluetoothAddress, ArrayDeque<Long>>()
+
+    internal var confirmCount: Int = CONFIRM_COUNT
+    internal var confirmSpanMs: Long = CONFIRM_SPAN_MS
 
     fun monitor(): Flow<Unit> = aapManager.sleepEvents
         .onEach { address -> handle(address) }
@@ -45,6 +49,25 @@ class SleepReaction @Inject constructor(
         if (primary?.address != address) {
             log(TAG) { "Sleep event from $address ignored — not primary device (primary=${primary?.address})" }
             return
+        }
+        if (primary.isEitherPodInEar != true) {
+            log(TAG) { "Sleep event from $address ignored — earbuds not worn" }
+            pending.remove(address)
+            return
+        }
+        // The firmware's single sleep push can be too eager (fires while merely sitting still). Only
+        // act once the report repeats confirmCount times spanning at least confirmSpanMs within
+        // CONFIRM_WINDOW_MS — a sustained state rather than a momentary pause in movement.
+        if (confirmCount > 1) {
+            val history = pending.getOrPut(address) { ArrayDeque() }
+            history.addLast(now)
+            while (history.isNotEmpty() && now - history.first() > CONFIRM_WINDOW_MS) history.removeFirst()
+            val span = now - history.first()
+            if (history.size < confirmCount || span < confirmSpanMs) {
+                log(TAG) { "Sleep event from $address pending confirmation (${history.size}/$confirmCount, span=${span}ms)" }
+                return
+            }
+            history.clear()
         }
         // Use sendPause's return value as the atomic check+act: true means we really paused
         // something, false means nothing was playing. Gating the cooldown and notification on
@@ -64,5 +87,8 @@ class SleepReaction @Inject constructor(
     companion object {
         private val TAG = logTag("Reaction", "Sleep")
         private const val COOLDOWN_MS = 5L * 60L * 1000L
+        const val CONFIRM_COUNT = 2
+        const val CONFIRM_SPAN_MS = 2L * 60L * 1000L
+        private const val CONFIRM_WINDOW_MS = 10L * 60L * 1000L
     }
 }

@@ -58,12 +58,17 @@ object HiddenApiBypass {
         val methodsOff = objectFieldOffset.invoke(unsafe,
             ArtMirror.Class::class.java.getDeclaredField("methods")) as Long
 
-        // --- Sanity check: verify artMethod offset matches the real accessible field ---
-        val realArtMethodOff = objectFieldOffset.invoke(unsafe,
-            java.lang.reflect.Executable::class.java.getDeclaredField("artMethod")) as Long
-        check(artMethodOff == realArtMethodOff) {
-            "ArtMirror.Executable.artMethod offset ($artMethodOff) != real offset ($realArtMethodOff). " +
-                    "ART field layout has changed — mirror classes need updating."
+        // --- Sanity check: verify artMethod offset matches the real accessible field when available ---
+        runCatching {
+            val realField = java.lang.reflect.Executable::class.java.getDeclaredField("artMethod")
+            objectFieldOffset.invoke(unsafe, realField) as Long
+        }.onSuccess { realArtMethodOff ->
+            check(artMethodOff == realArtMethodOff) {
+                "ArtMirror.Executable.artMethod offset ($artMethodOff) != real offset ($realArtMethodOff). " +
+                        "ART field layout has changed — mirror classes need updating."
+            }
+        }.onFailure { e ->
+            log(TAG, VERBOSE) { "Executable.artMethod pre-exemption reflection blocked (${e.javaClass.simpleName}), using ArtMirror offset=$artMethodOff" }
         }
 
         // --- Calculate artMethodSize and bias from NeverCall ---

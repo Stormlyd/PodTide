@@ -78,6 +78,7 @@ class GeneralSettingsViewModelTest : BaseTest() {
             every { it.useIndirectScanResultCallback } returns FakeDataStoreValue(false).mock
             every { it.showBottomPopup } returns FakeDataStoreValue(true).mock
             every { it.showTopPopup } returns FakeDataStoreValue(false).mock
+            every { it.showIdleMonitorNotification } returns FakeDataStoreValue(true).mock
             every { it.hideUnmatchedDevices } returns FakeDataStoreValue(false).mock
             every { it.monitoringEnabled } returns FakeDataStoreValue(true).mock
             every { it.themeMode } returns themeMode.mock

@@ -48,7 +48,6 @@ class HeartRateMenuTest : BaseComposeRobolectricTest() {
         }
         composeRule.onNodeWithTag("device_settings_list").performScrollToNode(hasTestTag("heart_rate_entry"))
         composeRule.onNodeWithTag("heart_rate_entry").performClick()
-        assertEntryUnavailable(hasTestTag("head_preview_entry"))
         assertTrue(opened)
     }
 
@@ -65,11 +64,10 @@ class HeartRateMenuTest : BaseComposeRobolectricTest() {
         }
         composeRule.onNodeWithTag("device_settings_list").performScrollToNode(hasTestTag("heart_rate_entry"))
         composeRule.onNodeWithTag("heart_rate_entry").performClick()
-        assertEntryUnavailable(hasTestTag("head_preview_entry"))
         assertTrue(opened)
     }
 
-    @Test fun `public release hides enabled head gestures while keeping normal connected reactions`() {
+    @Test fun `connected reactions and heart rate available on Pro3`() {
         composeRule.setContent { PreviewWrapper {
             DeviceSettingsScreen(
                 DeviceSettingsViewModel.State(
@@ -81,23 +79,22 @@ class HeartRateMenuTest : BaseComposeRobolectricTest() {
                 onNavigateUp = {}, headGestureConfig = HeadGestureConfig(enabled = true, media = true),
             )
         } }
-        assertEntryUnavailable(hasText(RuntimeEnvironment.getApplication().getString(R.string.head_gestures_title)))
         composeRule.onNodeWithTag("device_settings_list").performScrollToNode(hasTestTag("heart_rate_entry"))
         composeRule.onNodeWithTag("heart_rate_entry").assertIsDisplayed()
-        assertEntryUnavailable(hasTestTag("head_preview_entry"))
         val autoConnect = RuntimeEnvironment.getApplication().getString(R.string.settings_autoconnect_label)
         composeRule.onNodeWithTag("device_settings_list").performScrollToNode(hasText(autoConnect))
         composeRule.onNodeWithText(autoConnect).assertIsDisplayed()
     }
 
-    @Test fun `public release hides head preview on saved Pro2 profile`() {
+    @Test fun `head preview accessible on saved Pro2 profile`() {
         composeRule.setContent { PreviewWrapper {
             DeviceSettingsScreen(
                 DeviceSettingsViewModel.State(device = null, profileModel = PodModel.AIRPODS_PRO2),
                 onNavigateUp = {},
             )
         } }
-        assertEntryUnavailable(hasTestTag("head_preview_entry"))
+        composeRule.onNodeWithTag("device_settings_list").performScrollToNode(hasTestTag("head_preview_entry"))
+        composeRule.onNodeWithTag("head_preview_entry").assertIsDisplayed()
     }
 
     /** Search the entire lazy list so an off-screen entry cannot satisfy an absence assertion. */

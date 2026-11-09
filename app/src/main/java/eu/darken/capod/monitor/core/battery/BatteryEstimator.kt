@@ -318,12 +318,77 @@ class BatteryEstimator @Inject constructor(
         bucket: String,
         nowMs: Long,
     ): BatteryEstimate? {
+        val left = slotEstimate(profileId, tracker, device, bucket, Slot.LEFT, nowMs)
+        val right = slotEstimate(profileId, tracker, device, bucket, Slot.RIGHT, nowMs)
+        val headset = slotEstimate(profileId, tracker, device, bucket, Slot.HEADSET, nowMs)
+
+        val (reconciledLeft, reconciledRight) = reconcileDualPods(left, right, device, bucket)
+
         val estimate = BatteryEstimate(
-            left = slotEstimate(profileId, tracker, device, bucket, Slot.LEFT, nowMs),
-            right = slotEstimate(profileId, tracker, device, bucket, Slot.RIGHT, nowMs),
-            headset = slotEstimate(profileId, tracker, device, bucket, Slot.HEADSET, nowMs),
+            left = reconciledLeft,
+            right = reconciledRight,
+            headset = headset,
         )
         return estimate.takeIf { it.hasAny }
+    }
+
+    /**
+     * Guards against radical asymmetry between dual earbuds.
+     * Earbuds share identical cell capacity. When both are worn or both are full (e.g. 100% out of
+     * the case), an estimate showing 8h on one ear and 2h48m on the other is a symptom of historical
+     * rate contamination (such as single-mic call drain recorded into an idle/music bucket).
+     */
+    private fun reconcileDualPods(
+        left: BatteryEstimate.Pod?,
+        right: BatteryEstimate.Pod?,
+        device: PodDevice,
+        bucket: String,
+    ): Pair<BatteryEstimate.Pod?, BatteryEstimate.Pod?> {
+        if (left == null || right == null) return left to right
+
+        val leftFrac = device.liveFraction(Slot.LEFT) ?: return left to right
+        val rightFrac = device.liveFraction(Slot.RIGHT) ?: return left to right
+        val spec = device.specRate(bucket)
+
+        val bothHighBattery = leftFrac >= 0.90f && rightFrac >= 0.90f
+        val similarLevel = kotlin.math.abs(leftFrac - rightFrac) <= 0.08f
+        val neitherLive = left.source != BatteryEstimate.Source.LIVE && right.source != BatteryEstimate.Source.LIVE
+
+        if (bothHighBattery || (similarLevel && neitherLive)) {
+            val leftRate = left.fractionPerHour
+            val rightRate = right.fractionPerHour
+            val faster = maxOf(leftRate, rightRate)
+            val slower = minOf(leftRate, rightRate)
+
+            // If one ear is estimated to drain > 1.35x faster than the other without a live fit,
+            // the faster one has almost certainly absorbed microphone/call drain or a noisy step.
+            if (slower > 0f && faster / slower > 1.35f) {
+                val balancedRate = (leftRate + rightRate) / 2f
+                val clampedRate = minOf(faster, slower * 1.30f)
+                val newRate = if (bothHighBattery) {
+                    // Fresh out of case: anchor to the more reasonable baseline or spec
+                    spec?.let { maxOf(it, balancedRate * 0.85f) } ?: balancedRate
+                } else {
+                    clampedRate
+                }
+
+                fun adjust(pod: BatteryEstimate.Pod, originalRate: Float): BatteryEstimate.Pod {
+                    if (originalRate != faster) return pod
+                    val newMinutes = DrainModel.minutesRemaining(
+                        if (pod == left) leftFrac else rightFrac,
+                        newRate
+                    ) ?: pod.minutesRemaining
+                    return pod.copy(
+                        minutesRemaining = newMinutes,
+                        fractionPerHour = newRate,
+                    )
+                }
+
+                return adjust(left, leftRate) to adjust(right, rightRate)
+            }
+        }
+
+        return left to right
     }
 
     private fun slotEstimate(
@@ -714,7 +779,7 @@ class BatteryEstimator @Inject constructor(
         private const val STEP_BLE = 0.10f
 
         /** A measured rate above this multiple of the model's rated drain is rejected as implausible. */
-        private const val SPEC_BAND_MAX = 4f
+        private const val SPEC_BAND_MAX = 2.2f
 
         /** A gap longer than this between updates means the device was away — reset its window. */
         private const val STALE_GAP_MS = 15 * 60_000L

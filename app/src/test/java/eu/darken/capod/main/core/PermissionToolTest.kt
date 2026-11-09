@@ -1,6 +1,7 @@
 package eu.darken.capod.main.core
 
 import eu.darken.capod.common.permissions.Permission
+import eu.darken.capod.common.permissions.isHonorOrHuaweiDevice
 import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
 import testhelpers.BaseTest
@@ -98,5 +99,16 @@ class PermissionToolTest : BaseTest() {
                 }
             }
         }
+    }
+
+    @Test
+    fun `isHonorOrHuaweiDevice detects Honor and Huawei case-insensitively without affecting other brands`() {
+        isHonorOrHuaweiDevice(manufacturer = "HONOR", brand = "HONOR") shouldBe true
+        isHonorOrHuaweiDevice(manufacturer = "Honor", brand = "Honor") shouldBe true
+        isHonorOrHuaweiDevice(manufacturer = "HUAWEI", brand = "HUAWEI") shouldBe true
+        isHonorOrHuaweiDevice(manufacturer = "Huawei", brand = "HONOR") shouldBe true
+        isHonorOrHuaweiDevice(manufacturer = "OPPO", brand = "OPPO") shouldBe false
+        isHonorOrHuaweiDevice(manufacturer = "Xiaomi", brand = "Redmi") shouldBe false
+        isHonorOrHuaweiDevice(manufacturer = "Google", brand = "google") shouldBe false
     }
 }

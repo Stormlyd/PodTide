@@ -318,12 +318,14 @@ class MonitorService : Service() {
         val monitorJob = generalSettings.showLiveBatteryInNotification.flow.distinctUntilChanged()
             .flatMapLatest { liveBattery ->
                 if (!liveBattery) {
-                    deviceMonitor.primaryDeviceByTier
-                        .map { it?.isSystemConnected == true }
+                    combine(
+                        deviceMonitor.primaryDeviceByTier.map { it?.isSystemConnected == true }.distinctUntilChanged(),
+                        generalSettings.showIdleMonitorNotification.flow.distinctUntilChanged(),
+                    ) { connected, visible -> connected to visible }
                         .distinctUntilChanged()
-                        .onEach { connected ->
+                        .onEach { (connected, visible) ->
                             latestNotificationSettings = NotificationSettings(false, false)
-                            postPrimaryNotification(notifications.getGenericNotification(isConnected = connected))
+                            postPrimaryNotification(notifications.getGenericNotification(isConnected = connected, quiet = !visible))
                             notificationManager.cancel(MonitorNotifications.NOTIFICATION_ID_CONNECTED)
                         }
                         .map { Unit }

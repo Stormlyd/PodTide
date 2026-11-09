@@ -5,6 +5,8 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
+import eu.darken.capod.profiles.core.AppleDeviceProfile
+import eu.darken.capod.profiles.core.DeviceProfilesRepo
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
@@ -17,6 +19,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -60,12 +63,15 @@ class BluetoothManager2Test : BaseTest() {
     private fun create(
         scope: CoroutineScope = appScope,
         dispatchers: TestDispatcherProvider = TestDispatcherProvider(),
+        context: Context = mockk<Context>(relaxed = true),
+        profilesRepo: DeviceProfilesRepo? = null,
     ) = BluetoothManager2(
         appScope = scope,
         dispatcherProvider = dispatchers,
-        context = mockk<Context>(),
+        context = context,
         manager = btManager,
         timeSource = timeSource,
+        profilesRepo = profilesRepo,
     )
 
     private suspend fun BluetoothManager2.bonded(address: BluetoothAddress) =
@@ -264,6 +270,11 @@ class BluetoothManager2Test : BaseTest() {
         request.isCancelled shouldBe true
         proxy.connectCalls shouldBe 0
         verify(exactly = 1) { btAdapter.closeProfileProxy(profile, proxy) }
+    }
+
+    @Test
+    fun `isMatchingPodDevice accepts configured profile address without querying vendor UUIDs`() {
+        BluetoothManager2.isMatchingPodDevice(deviceA, setOf(ADDRESS_A)) shouldBe true
     }
 
     class RecordingProfile : BluetoothProfile {

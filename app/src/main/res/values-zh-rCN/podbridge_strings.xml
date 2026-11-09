@@ -15,4 +15,8 @@
     <string name="head_action_previous">上一首</string>
     <string name="head_action_volume_up">调高音量</string>
     <string name="head_action_volume_down">调低音量</string>
+    <string name="settings_monitor_idle_notification_label">显示后台常驻通知</string>
+    <string name="settings_monitor_idle_notification_description">关闭后，“准备好自动连接”通知会移入静默折叠频道，不在状态栏显示图标。Android 要求后台监测必须保留一条通知，因此无法完全移除。</string>
+    <string name="notification_channel_device_status_quiet_label">后台监测（静默）</string>
+    <string name="settings_sleep_detection_confirm_info">为避免误暂停，只有在佩戴耳机且耳机在数分钟内多次报告入睡时才会暂停。</string>
 </resources>

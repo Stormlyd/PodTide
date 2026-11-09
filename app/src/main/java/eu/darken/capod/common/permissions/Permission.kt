@@ -84,6 +84,14 @@ enum class Permission(
 }
 
 fun Permission.isRequired(context: Context): Boolean = when {
+    this == Permission.ACCESS_FINE_LOCATION && isHonorOrHuaweiDevice() -> !isGranted(context)
     !withinApiLevel(minApiLevel, maxApiLevel) -> false
     else -> !isGranted(context)
+}
+
+internal fun isHonorOrHuaweiDevice(
+    manufacturer: String? = Build.MANUFACTURER,
+    brand: String? = Build.BRAND,
+): Boolean = listOf(manufacturer, brand).any {
+    it.equals("HONOR", ignoreCase = true) || it.equals("HUAWEI", ignoreCase = true)
 }

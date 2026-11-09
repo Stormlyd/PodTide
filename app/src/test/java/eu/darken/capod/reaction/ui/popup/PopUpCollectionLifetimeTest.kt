@@ -100,6 +100,7 @@ class PopUpCollectionLifetimeTest {
             every { showBatteryInStatusBar.flow } returns statusBarBattery
             every { showBottomPopup.flow } answers { bottomFlow }
             every { showTopPopup.flow } answers { topFlow }
+            every { showIdleMonitorNotification.flow } returns MutableStateFlow(true)
         }
         service.permissionTool = mockk { every { missingScanPermissions } returns flowOf(emptySet()) }
         service.deviceMonitor = mockk { every { primaryDeviceByTier } returns notificationDevice }

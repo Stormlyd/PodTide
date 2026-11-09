@@ -14,4 +14,8 @@
     <string name="head_action_previous">Previous track</string>
     <string name="head_action_volume_up">Volume up</string>
     <string name="head_action_volume_down">Volume down</string>
+    <string name="settings_monitor_idle_notification_label">Show background status notification</string>
+    <string name="settings_monitor_idle_notification_description">When off, the \"Ready for automatic connection\" notification moves to a silent, collapsed channel without a status bar icon. Android requires a notification for background monitoring, so it cannot be removed entirely.</string>
+    <string name="notification_channel_device_status_quiet_label">Background monitoring (silent)</string>
+    <string name="settings_sleep_detection_confirm_info">To avoid false pauses, PodTide only pauses after the earbuds report sleep repeatedly over several minutes while both pods are worn.</string>
 </resources>

@@ -196,9 +196,14 @@ class MonitorNotifications @Inject constructor(
         showBatteryInStatusBar = showBatteryInStatusBar,
     ).build()
 
-    fun getGenericNotification(isConnected: Boolean = false): Notification = baseBuilder(NOTIFICATION_CHANNEL_ID).apply {
+    fun getGenericNotification(isConnected: Boolean = false, quiet: Boolean = false): Notification =
+        baseBuilder(if (quiet) NOTIFICATION_CHANNEL_ID_QUIET else NOTIFICATION_CHANNEL_ID).apply {
         setContentTitle(context.getString(R.string.app_name))
         setContentText(context.getString(if (isConnected) R.string.monitor_notification_connected else R.string.monitor_notification_running))
+        if (quiet) {
+            setPriority(NotificationCompat.PRIORITY_MIN)
+            setSilent(true)
+        }
     }.build()
 
     fun getStartupNotification(): Notification = getGenericNotification()
@@ -206,6 +211,7 @@ class MonitorNotifications @Inject constructor(
     companion object {
         val TAG = logTag("Monitor", "Notifications")
         internal val NOTIFICATION_CHANNEL_ID = "${BuildConfigWrap.APPLICATION_ID}.notification.channel.device.status"
+        internal val NOTIFICATION_CHANNEL_ID_QUIET = "${BuildConfigWrap.APPLICATION_ID}.notification.channel.device.status.quiet"
         private val NOTIFICATION_CHANNEL_ID_CONNECTED =
             "${BuildConfigWrap.APPLICATION_ID}.notification.channel.device.status.connected"
         internal const val NOTIFICATION_ID = 1
@@ -221,6 +227,13 @@ class MonitorNotifications @Inject constructor(
                     context.getString(R.string.notification_channel_device_status_label),
                     NotificationManager.IMPORTANCE_LOW,
                 )
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    NOTIFICATION_CHANNEL_ID_QUIET,
+                    context.getString(R.string.notification_channel_device_status_quiet_label),
+                    NotificationManager.IMPORTANCE_MIN,
+                ).apply { setShowBadge(false) }
             )
         }
 

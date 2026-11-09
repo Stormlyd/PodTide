@@ -11,6 +11,7 @@ import eu.darken.capod.common.BuildConfigWrap
 import eu.darken.capod.common.bluetooth.BluetoothAddress
 import eu.darken.capod.common.bluetooth.NudgeAvailability
 import eu.darken.capod.common.datastore.createValue
+import eu.darken.capod.common.permissions.isHonorOrHuaweiDevice
 import eu.darken.capod.common.serialization.ByteArrayBase64Serializer
 import eu.darken.capod.common.serialization.SerializationCapod
 import eu.darken.capod.common.theming.ThemeColor
@@ -38,6 +39,9 @@ class GeneralSettings @Inject constructor(
     private val dataStore: DataStore<Preferences> get() = context.dataStore
 
     val showLiveBatteryInNotification = dataStore.createValue("core.monitor.notification.battery.live", false)
+
+    /** Show the background "ready" notification (when live battery is off). Off = silent minimized channel. */
+    val showIdleMonitorNotification = dataStore.createValue("core.monitor.notification.idle.visible", true)
 
     /**
      * The user's explicit intent for background monitoring. Distinct from a process kill: while
@@ -83,8 +87,9 @@ class GeneralSettings @Inject constructor(
         onErrorFallbackToDefault = true,
     )
 
-    val isOffloadedFilteringDisabled = dataStore.createValue("core.compat.offloaded.filtering.disabled", false)
-    val isOffloadedBatchingDisabled = dataStore.createValue("core.compat.offloaded.batching.disabled", false)
+    private val defaultDisableOffload = isHonorOrHuaweiDevice()
+    val isOffloadedFilteringDisabled = dataStore.createValue("core.compat.offloaded.filtering.disabled", defaultDisableOffload)
+    val isOffloadedBatchingDisabled = dataStore.createValue("core.compat.offloaded.batching.disabled", defaultDisableOffload)
     val useIndirectScanResultCallback = dataStore.createValue("core.compat.indirectcallback.enabled", false)
 
     /** Runtime-detected verdict for whether `BluetoothHeadset.connect()` reflection works on this device. */
