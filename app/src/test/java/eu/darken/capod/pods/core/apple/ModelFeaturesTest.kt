@@ -295,6 +295,8 @@ class ModelFeaturesTest : BaseTest() {
 
     private val ncOneAirpodModels = setOf(
         PodModel.AIRPODS_GEN4_ANC,
+        PodModel.AIRPODS_GEN5,
+        PodModel.AIRPODS_GEN5_WIRELESS,
         PodModel.AIRPODS_PRO,
         PodModel.AIRPODS_PRO2,
         PodModel.AIRPODS_PRO2_USBC,
@@ -325,6 +327,8 @@ class ModelFeaturesTest : BaseTest() {
 
     private val personalizedVolumeModels = setOf(
         PodModel.AIRPODS_GEN4_ANC,
+        PodModel.AIRPODS_GEN5,
+        PodModel.AIRPODS_GEN5_WIRELESS,
         PodModel.AIRPODS_PRO2,
         PodModel.AIRPODS_PRO2_USBC,
         PodModel.AIRPODS_PRO3,
@@ -335,6 +339,8 @@ class ModelFeaturesTest : BaseTest() {
         PodModel.AIRPODS_GEN3,
         PodModel.AIRPODS_GEN4,
         PodModel.AIRPODS_GEN4_ANC,
+        PodModel.AIRPODS_GEN5,
+        PodModel.AIRPODS_GEN5_WIRELESS,
         PodModel.AIRPODS_PRO,
         PodModel.AIRPODS_PRO2,
         PodModel.AIRPODS_PRO2_USBC,
@@ -349,6 +355,8 @@ class ModelFeaturesTest : BaseTest() {
         PodModel.AIRPODS_GEN3,
         PodModel.AIRPODS_GEN4,
         PodModel.AIRPODS_GEN4_ANC,
+        PodModel.AIRPODS_GEN5,
+        PodModel.AIRPODS_GEN5_WIRELESS,
         PodModel.AIRPODS_PRO,
         PodModel.AIRPODS_PRO2,
         PodModel.AIRPODS_PRO2_USBC,
@@ -372,6 +380,8 @@ class ModelFeaturesTest : BaseTest() {
         PodModel.AIRPODS_GEN3,
         PodModel.AIRPODS_GEN4,
         PodModel.AIRPODS_GEN4_ANC,
+        PodModel.AIRPODS_GEN5,
+        PodModel.AIRPODS_GEN5_WIRELESS,
         PodModel.AIRPODS_PRO,
         PodModel.AIRPODS_PRO2,
         PodModel.AIRPODS_PRO2_USBC,
@@ -386,6 +396,8 @@ class ModelFeaturesTest : BaseTest() {
         PodModel.AIRPODS_GEN3,
         PodModel.AIRPODS_GEN4,
         PodModel.AIRPODS_GEN4_ANC,
+        PodModel.AIRPODS_GEN5,
+        PodModel.AIRPODS_GEN5_WIRELESS,
         PodModel.AIRPODS_PRO,
         PodModel.AIRPODS_PRO2,
         PodModel.AIRPODS_PRO2_USBC,
@@ -413,6 +425,8 @@ class ModelFeaturesTest : BaseTest() {
 
     private val stemConfigModels = setOf(
         PodModel.AIRPODS_GEN4_ANC,
+        PodModel.AIRPODS_GEN5,
+        PodModel.AIRPODS_GEN5_WIRELESS,
         PodModel.AIRPODS_PRO2,
         PodModel.AIRPODS_PRO2_USBC,
         PodModel.AIRPODS_PRO3,
@@ -421,6 +435,8 @@ class ModelFeaturesTest : BaseTest() {
     private val sleepDetectionModels = setOf(
         PodModel.AIRPODS_GEN4,
         PodModel.AIRPODS_GEN4_ANC,
+        PodModel.AIRPODS_GEN5,
+        PodModel.AIRPODS_GEN5_WIRELESS,
         PodModel.AIRPODS_PRO2,
         PodModel.AIRPODS_PRO2_USBC,
         PodModel.AIRPODS_PRO3,

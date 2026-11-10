@@ -13,11 +13,16 @@ import testhelpers.BaseTest
 class PodModelInterchangeTest : BaseTest() {
 
     @Test
-    fun `gen5 case revisions are interchangeable`() {
+    fun `gen5 and pro2 case revisions are interchangeable`() {
         PodModel.AIRPODS_GEN5.isInterchangeableWith(PodModel.AIRPODS_GEN5_WIRELESS) shouldBe true
         PodModel.AIRPODS_GEN5_WIRELESS.isInterchangeableWith(PodModel.AIRPODS_GEN5) shouldBe true
         PodModel.AIRPODS_GEN5.interchangeableModels shouldBe
                 setOf(PodModel.AIRPODS_GEN5, PodModel.AIRPODS_GEN5_WIRELESS)
+
+        PodModel.AIRPODS_PRO2.isInterchangeableWith(PodModel.AIRPODS_PRO2_USBC) shouldBe true
+        PodModel.AIRPODS_PRO2_USBC.isInterchangeableWith(PodModel.AIRPODS_PRO2) shouldBe true
+        PodModel.AIRPODS_PRO2.interchangeableModels shouldBe
+                setOf(PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC)
     }
 
     @Test

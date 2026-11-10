@@ -85,8 +85,25 @@ internal class AapConnection(
         engine.start(scope)
 
         try {
-            val sock = socketFactory.createSocket(device, PSM)
-            sock.connectCancellable()
+            val initialSock = socketFactory.createSocket(device, PSM)
+            val sock = try {
+                initialSock.connectCancellable()
+                initialSock
+            } catch (primaryError: IOException) {
+                initialSock.closeQuietly()
+                val fallbackSock = runCatching { socketFactory.createSecureSocket(device, PSM) }.getOrNull()
+                    ?: throw primaryError
+                log(TAG, Logging.Priority.WARN) {
+                    "Insecure L2CAP connect failed (${primaryError.message}), retrying with secure L2CAP socket for ${device.address}"
+                }
+                try {
+                    fallbackSock.connectCancellable()
+                    fallbackSock
+                } catch (_: Exception) {
+                    fallbackSock.closeQuietly()
+                    throw primaryError
+                }
+            }
             socket = sock
             log(TAG, Logging.Priority.INFO) { "Connected to ${device.address}" }
 

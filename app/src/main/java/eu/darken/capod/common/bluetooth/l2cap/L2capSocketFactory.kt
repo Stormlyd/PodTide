@@ -37,17 +37,34 @@ class L2capSocketFactory @Inject constructor() {
         require(psm > 0) { "Invalid PSM: $psm" }
 
         // Strategy 1: Public API via BluetoothSocketSettings (API 37+)
-        tryPublicApi(device, psm)?.let { socket ->
+        tryPublicApi(device, psm, secure = false)?.let { socket ->
             log(TAG, VERBOSE) { "Socket created via public BluetoothSocketSettings API" }
             return socket
         }
 
         // Strategy 2: Hidden API via reflection + bypass
         log(TAG, VERBOSE) { "Public API unavailable, using hidden API bypass" }
-        return createViaHiddenApi(device, psm)
+        return createViaHiddenApi(device, psm, secure = false)
     }
 
-    private fun tryPublicApi(device: BluetoothDevice, psm: Int): BluetoothSocket? {
+    /**
+     * Creates an authenticated/encrypted BR/EDR L2CAP socket as a fallback when an insecure L2CAP
+     * connection is rejected by the OEM Bluetooth stack or firmware for a bonded device.
+     */
+    fun createSecureSocket(device: BluetoothDevice, psm: Int): BluetoothSocket? {
+        require(psm > 0) { "Invalid PSM: $psm" }
+        tryPublicApi(device, psm, secure = true)?.let { socket ->
+            log(TAG, VERBOSE) { "Secure socket created via public BluetoothSocketSettings API" }
+            return socket
+        }
+        return runCatching {
+            createViaHiddenApi(device, psm, secure = true)
+        }.onFailure { e ->
+            log(TAG, VERBOSE) { "Secure L2CAP socket creation unavailable: ${e.message}" }
+        }.getOrNull()
+    }
+
+    private fun tryPublicApi(device: BluetoothDevice, psm: Int, secure: Boolean = false): BluetoothSocket? {
         return try {
             val settingsClass = Class.forName("android.bluetooth.BluetoothSocketSettings")
             val builderClass = Class.forName("android.bluetooth.BluetoothSocketSettings\$Builder")
@@ -55,8 +72,8 @@ class L2capSocketFactory @Inject constructor() {
             val builder = builderClass.getDeclaredConstructor().newInstance()
             builderClass.getMethod("setSocketType", Int::class.javaPrimitiveType).invoke(builder, TYPE_L2CAP)
             builderClass.getMethod("setL2capPsm", Int::class.javaPrimitiveType).invoke(builder, psm)
-            builderClass.getMethod("setAuthenticationRequired", Boolean::class.javaPrimitiveType).invoke(builder, false)
-            builderClass.getMethod("setEncryptionRequired", Boolean::class.javaPrimitiveType).invoke(builder, false)
+            builderClass.getMethod("setAuthenticationRequired", Boolean::class.javaPrimitiveType).invoke(builder, secure)
+            builderClass.getMethod("setEncryptionRequired", Boolean::class.javaPrimitiveType).invoke(builder, secure)
             val settings = builderClass.getMethod("build").invoke(builder)
 
             val createMethod = BluetoothDevice::class.java.getMethod("createUsingSocketSettings", settingsClass)
@@ -83,17 +100,18 @@ class L2capSocketFactory @Inject constructor() {
     // The BR/EDR fallback explicitly installs VMRuntime exemptions before reflection. Its
     // availability is still checked at runtime and remains part of physical-device validation.
     @SuppressLint("SoonBlockedPrivateApi")
-    private fun createViaHiddenApi(device: BluetoothDevice, psm: Int): BluetoothSocket {
+    private fun createViaHiddenApi(device: BluetoothDevice, psm: Int, secure: Boolean = false): BluetoothSocket {
         HiddenApiBypass.setExemptions("Landroid/bluetooth/")
 
+        val methodName = if (secure) "createL2capSocket" else "createInsecureL2capSocket"
         return try {
             val method = BluetoothDevice::class.java.getDeclaredMethod(
-                "createInsecureL2capSocket",
+                methodName,
                 Int::class.javaPrimitiveType
             )
             method.invoke(device, psm) as BluetoothSocket
         } catch (e: java.lang.reflect.InvocationTargetException) {
-            throw e.cause ?: IOException("createInsecureL2capSocket failed", e)
+            throw e.cause ?: IOException("$methodName failed", e)
         } catch (e: NoSuchMethodException) {
             throw e
         } catch (e: SecurityException) {

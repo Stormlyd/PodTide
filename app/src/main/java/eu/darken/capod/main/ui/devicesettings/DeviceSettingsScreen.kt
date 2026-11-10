@@ -519,10 +519,8 @@ fun DeviceSettingsScreen(
                 }
             }
 
-            // ── Reactions (gated on classic connection — needs phone to be the audio target) ──
-            if (device != null && device.hasSelectedPairedDevice &&
-                features != null && state.isClassicallyConnected
-            ) {
+            // ── Reactions (always editable when a paired device is configured) ──
+            if (device != null && device.hasSelectedPairedDevice && features != null) {
                 item("reactions_section") {
                     ReactionsCard(
                         device = device,
