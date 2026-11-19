@@ -7,9 +7,11 @@ import eu.darken.capod.common.SystemTimeSource
 import eu.darken.capod.common.bluetooth.BluetoothAddress
 import eu.darken.capod.monitor.core.cache.CachedDeviceState
 import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.artwork
 import eu.darken.capod.pods.core.apple.aap.AapPodState
 import eu.darken.capod.pods.core.apple.aap.protocol.AapDeviceInfo
 import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
+import eu.darken.capod.pods.core.apple.ble.AppleFactory
 import eu.darken.capod.pods.core.apple.ble.BATTERY_UNKNOWN
 import eu.darken.capod.pods.core.apple.ble.BlePodSnapshot
 import eu.darken.capod.pods.core.apple.ble.DualBlePodSnapshot
@@ -58,6 +60,8 @@ data class PodDevice(
      * the live AAP state has no ListeningModeCycle setting (device never echoes 0x1A back).
      */
     internal val profileLastRequestedListeningModeCycleMask: Int? = null,
+    /** Last requested Adaptive Audio strength persisted on the profile (device may not echo it). */
+    internal val profileAdaptiveNoiseLevel: Int? = null,
     /** Reaction toggle snapshot from the profile. Defaults to all-off when no profile is matched. */
     val reactions: ReactionConfig = ReactionConfig(),
     /** Whether the dashboard battery time-remaining estimate is enabled for this device (per-profile). */
@@ -102,6 +106,7 @@ data class PodDevice(
     val hasDualPods: Boolean get() = model.features.hasDualPods
     val hasEarDetection: Boolean get() = model.features.hasEarDetection
     val hasAncControl: Boolean get() = model.features.hasAncControl
+    val hasAdaptiveAudioNoise: Boolean get() = model.features.hasAdaptiveAudioNoise
     val hasDualMicrophone: Boolean get() = ble is HasDualMicrophone
     val hasDynamicEndOfCharge: Boolean get() = model.features.hasDynamicEndOfCharge
 
@@ -160,43 +165,27 @@ data class PodDevice(
     // for unknown to keep the type primitive; this is the boundary that previously emitted
     // Float? and triggered Android 10 ART JIT crashes via R8-merged unbox call sites.
     val batteryLeft: Float
-        get() = aap?.batteryLeft ?: (ble as? DualBlePodSnapshot)?.batteryLeftPodPercent
-            ?: cached?.left?.percent ?: BATTERY_UNKNOWN
+        get() = batteryLeftReading?.percent ?: BATTERY_UNKNOWN
 
     val batteryRight: Float
-        get() = aap?.batteryRight ?: (ble as? DualBlePodSnapshot)?.batteryRightPodPercent
-            ?: cached?.right?.percent ?: BATTERY_UNKNOWN
+        get() = batteryRightReading?.percent ?: BATTERY_UNKNOWN
 
     val batteryCase: Float
-        get() = aap?.batteryCase ?: (ble as? HasCase)?.batteryCasePercent
-            ?: cached?.case?.percent ?: BATTERY_UNKNOWN
+        get() = batteryCaseReading?.percent ?: BATTERY_UNKNOWN
 
     val batteryHeadset: Float
-        get() = aap?.batteryHeadset ?: (ble as? SingleBlePodSnapshot)?.batteryHeadsetPercent
-            ?: cached?.headset?.percent ?: BATTERY_UNKNOWN
+        get() = batteryHeadsetReading?.percent ?: BATTERY_UNKNOWN
 
     /** True when at least one displayed battery value was filled from cache (not live). */
     val isBatteryCached: Boolean
-        get() {
-            if (cached == null) return false
-            val usedLeft = aap?.batteryLeft == null && (ble as? DualBlePodSnapshot)?.batteryLeftPodPercent == null && cached.left != null
-            val usedRight = aap?.batteryRight == null && (ble as? DualBlePodSnapshot)?.batteryRightPodPercent == null && cached.right != null
-            val usedCase = aap?.batteryCase == null && (ble as? HasCase)?.batteryCasePercent == null && cached.case != null
-            val usedHeadset = aap?.batteryHeadset == null && (ble as? SingleBlePodSnapshot)?.batteryHeadsetPercent == null && cached.headset != null
-            return usedLeft || usedRight || usedCase || usedHeadset
-        }
+        get() = allBatteryReadings.any { it.isHistorical }
 
     /** Oldest per-slot timestamp among battery values that fell through to cache. Null if all live. */
     val cachedBatteryAt: Instant?
-        get() {
-            if (cached == null) return null
-            return listOfNotNull(
-                cached.left?.updatedAt.takeIf { aap?.batteryLeft == null && (ble as? DualBlePodSnapshot)?.batteryLeftPodPercent == null },
-                cached.right?.updatedAt.takeIf { aap?.batteryRight == null && (ble as? DualBlePodSnapshot)?.batteryRightPodPercent == null },
-                cached.case?.updatedAt.takeIf { aap?.batteryCase == null && (ble as? HasCase)?.batteryCasePercent == null },
-                cached.headset?.updatedAt.takeIf { aap?.batteryHeadset == null && (ble as? SingleBlePodSnapshot)?.batteryHeadsetPercent == null },
-            ).minOrNull()
-        }
+        get() = allBatteryReadings
+            .filter { it.isHistorical }
+            .mapNotNull { it.sampledAt }
+            .minOrNull()
 
     // Charging — AAP preferred, BLE fallback, then cached. The cached fallback only applies while
     // the device is live (connected): charging is a real-time claim ("power is flowing now") that
@@ -328,23 +317,17 @@ data class PodDevice(
             return (ble as? HasDualMicrophone)?.isRightPodMicrophone
         }
 
-    // Icons / labels
-    val iconRes: Int get() = ble?.iconRes ?: model.iconRes
+    // Icons / labels. Unified Pro 3 artwork is a display choice; model identity is unchanged.
+    val iconRes: Int get() = model.artwork.popupLeft
 
-    val leftPodIcon: Int
-        get() = (ble as? DualBlePodSnapshot)?.leftPodIcon
-            ?: model.leftPodIconRes
-            ?: R.drawable.device_airpods_gen1_left
+    val leftPodIcon: Int get() = model.artwork.left
 
-    val rightPodIcon: Int
-        get() = (ble as? DualBlePodSnapshot)?.rightPodIcon
-            ?: model.rightPodIconRes
-            ?: R.drawable.device_airpods_gen1_right
+    val rightPodIcon: Int get() = model.artwork.right
 
-    val caseIcon: Int
-        get() = (ble as? HasCase)?.caseIcon
-            ?: model.caseIconRes
-            ?: R.drawable.device_airpods_gen1_case
+    val caseIcon: Int get() = model.artwork.case
+
+    val matchReason: AppleFactory.MatchReason?
+        get() = (ble?.meta as? ApplePods.AppleMeta)?.matchReason
 
     fun getLabel(context: Context): String = ble?.getLabel(context) ?: model.label
 
@@ -363,6 +346,9 @@ data class PodDevice(
 
     val pendingCustomEq: AapSetting.CustomEq?
         get() = aap?.pendingCustomEq
+
+    val customEqUnconfirmed: AapSetting.CustomEq?
+        get() = aap?.customEqUnconfirmed
 
     val hasPendingSettings: Boolean?
         get() = aap?.hasPendingSettings
@@ -384,6 +370,7 @@ data class PodDevice(
 
     val adaptiveAudioNoise: AapSetting.AdaptiveAudioNoise?
         get() = aap?.setting()
+            ?: profileAdaptiveNoiseLevel?.let { AapSetting.AdaptiveAudioNoise(level = it) }
 
     val pressSpeed: AapSetting.PressSpeed?
         get() = aap?.setting()

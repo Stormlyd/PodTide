@@ -61,4 +61,25 @@ class CustomEqViewModelTest {
         model.observe(model.draft, confirmationRevision = 2)
         model.edited shouldBe false
     }
+
+    @Test
+    fun `late report after timeout is surfaced without claiming a fresh confirmation`() {
+        val original = AapSetting.CustomEq(2, 20, 30, 40)
+        val applied = original.copy(low = 77)
+        val model = CustomEqViewModel(original)
+        model.setLow(77)
+        model.markApplying(confirmationRevision = 0)
+
+        // The request window timed out; an older identical report alone must not clear the draft.
+        model.observe(original, confirmationRevision = 0, unconfirmed = true)
+        model.edited shouldBe true
+        model.lateReport shouldBe false
+
+        // A later matching report while the unconfirmed target is still tracked is useful
+        // evidence, but it must not be treated as confirmation of a newer request.
+        model.observe(applied, confirmationRevision = 0, unconfirmed = true)
+        model.edited shouldBe false
+        model.lateReport shouldBe true
+        model.awaitingReport shouldBe false
+    }
 }

@@ -257,12 +257,13 @@ internal class AapSessionEngine(
             }
 
             is AapInboundUpdate.Battery -> {
-                val valid = update.batteries.filterValues {
-                    it.charging != AapPodState.ChargingState.DISCONNECTED
-                }
+                val now = timeSource.now()
+                val valid = update.batteries
+                    .filterValues { it.charging != AapPodState.ChargingState.DISCONNECTED }
+                    .mapValues { (_, battery) -> battery.copy(reportedAt = now) }
                 _state.value = _state.value.copy(
                     batteries = _state.value.batteries + valid,
-                    lastMessageAt = timeSource.now(),
+                    lastMessageAt = now,
                 )
                 log(TAG) {
                     "Battery update: ${update.batteries.entries.map { "${it.key}=${(it.value.percent * 100).toInt()}% ${it.value.charging}" }}"
@@ -399,9 +400,12 @@ internal class AapSessionEngine(
      * arriving close to that deadline can't be misread as a divergence.
      */
     private fun reconcileVerification(observedKey: KClass<out AapSetting>) {
-        if (runtimeState.outbound.verification == null && runtimeState.outbound.customEqVerification == null) return
+        if (runtimeState.outbound.verification == null &&
+            runtimeState.outbound.customEqVerification == null &&
+            _state.value.customEqUnconfirmed == null
+        ) return
         val decision = outboundController.onStateObserved(_state.value, runtimeState.outbound, observedKey)
-        if (decision.runtimeState == runtimeState.outbound) return
+        if (decision.runtimeState == runtimeState.outbound && decision.podState == _state.value) return
         _state.value = decision.podState
         runtimeState = runtimeState.copy(outbound = decision.runtimeState)
         decision.logs.forEach { log(TAG) { it } }
@@ -471,6 +475,7 @@ internal class AapSessionEngine(
         } catch (e: Exception) {
             restoreVerification(ctx.previousVerification, ctx.previousCustomEqVerification)
             clearPendingAfterFailedSend(ctx.decision.commandsToSend)
+            markFailedCustomEqSend(ctx.decision.commandsToSend)
             throw e
         }
     }
@@ -502,7 +507,14 @@ internal class AapSessionEngine(
     private fun rejectFailedCustomEqSend(commands: List<AapCommand>) {
         val eq = commands.filterIsInstance<AapCommand.SetCustomEq>().lastOrNull() ?: return
         runtimeState = runtimeState.copy(outbound = runtimeState.outbound.copy(customEqVerification = null))
+        markFailedCustomEqSend(commands)
         handleRejectedCommand(eq)
+    }
+
+    /** A send that never reached the device leaves the request unconfirmed, not "rejected". */
+    private fun markFailedCustomEqSend(commands: List<AapCommand>) {
+        val eq = commands.filterIsInstance<AapCommand.SetCustomEq>().lastOrNull() ?: return
+        _state.value = _state.value.copy(customEqUnconfirmed = eq.value)
     }
 
     private suspend fun sendCommands(

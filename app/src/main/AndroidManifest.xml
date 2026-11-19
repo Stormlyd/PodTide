@@ -35,6 +35,9 @@
 
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
+    <!-- Optional: phone-microphone sound-level estimation. Never recorded to storage. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation"
@@ -142,6 +145,17 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/anc_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".main.ui.widget.SoundLevelWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/sound_level_widget_info" />
         </receiver>
 
         <provider

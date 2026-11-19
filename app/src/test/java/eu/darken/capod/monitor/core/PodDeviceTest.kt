@@ -49,6 +49,81 @@ class PodDeviceTest : BaseTest() {
     }
 
     @Test
+    fun `newer AAP slot wins over an older BLE advertisement`() {
+        val now = Instant.now()
+        val ble = mockk<DualApplePods>(relaxed = true) {
+            every { model } returns PodModel.AIRPODS_PRO3
+            every { batteryLeftPodPercent } returns 0.5f
+            every { seenLastAt } returns now.minusSeconds(120)
+        }
+        val aap = AapPodState(
+            connectionState = AapPodState.ConnectionState.READY,
+            batteries = mapOf(
+                AapPodState.BatteryType.LEFT to AapPodState.Battery(
+                    type = AapPodState.BatteryType.LEFT,
+                    percent = 0.8f,
+                    charging = AapPodState.ChargingState.NOT_CHARGING,
+                    reportedAt = now.minusSeconds(10),
+                ),
+            ),
+        )
+        val device = PodDevice(profileId = null, ble = ble, aap = aap)
+        device.batteryLeft shouldBe 0.8f
+        device.batteryLeftReading?.source shouldBe BatterySource.AAP
+    }
+
+    @Test
+    fun `newer BLE advertisement overtakes a stale AAP slot`() {
+        val now = Instant.now()
+        val ble = mockk<DualApplePods>(relaxed = true) {
+            every { model } returns PodModel.AIRPODS_PRO3
+            every { batteryLeftPodPercent } returns 0.5f
+            every { seenLastAt } returns now
+        }
+        val aap = AapPodState(
+            connectionState = AapPodState.ConnectionState.READY,
+            lastMessageAt = now,
+            batteries = mapOf(
+                AapPodState.BatteryType.LEFT to AapPodState.Battery(
+                    type = AapPodState.BatteryType.LEFT,
+                    percent = 0.8f,
+                    charging = AapPodState.ChargingState.NOT_CHARGING,
+                    reportedAt = now.minusSeconds(120),
+                ),
+            ),
+        )
+        val device = PodDevice(profileId = null, ble = ble, aap = aap)
+        device.batteryLeft shouldBe 0.5f
+        device.batteryLeftReading?.source shouldBe BatterySource.BLE
+    }
+
+    @Test
+    fun `unrelated AAP message does not refresh an old battery slot`() {
+        val now = Instant.now()
+        val ble = mockk<DualApplePods>(relaxed = true) {
+            every { model } returns PodModel.AIRPODS_PRO3
+            every { batteryLeftPodPercent } returns 0.5f
+            every { seenLastAt } returns now
+        }
+        val aap = AapPodState(
+            connectionState = AapPodState.ConnectionState.READY,
+            // A device-info/settings message was seen just now...
+            lastMessageAt = now.minusSeconds(5),
+            batteries = mapOf(
+                AapPodState.BatteryType.LEFT to AapPodState.Battery(
+                    type = AapPodState.BatteryType.LEFT,
+                    percent = 0.8f,
+                    charging = AapPodState.ChargingState.NOT_CHARGING,
+                    // ...but the left battery itself was reported two minutes ago.
+                    reportedAt = now.minusSeconds(120),
+                ),
+            ),
+        )
+        val device = PodDevice(profileId = null, ble = ble, aap = aap)
+        device.batteryLeft shouldBe 0.5f
+    }
+
+    @Test
     fun `capabilities come from model features`() {
         val device = PodDevice(
             profileId = null, ble = mockDualPod(model = PodModel.AIRPODS_PRO3),
@@ -561,7 +636,7 @@ class PodDeviceTest : BaseTest() {
     }
 
     @Test
-    fun `icon and label properties delegate to BLE`() {
+    fun `icon uses the unified pro artwork regardless of BLE icon`() {
         val device = PodDevice(
             profileId = null, ble = mockk(relaxed = true) {
                 every { model } returns PodModel.AIRPODS_PRO3
@@ -569,7 +644,7 @@ class PodDeviceTest : BaseTest() {
             },
             aap = null,
         )
-        device.iconRes shouldBe 42
+        device.iconRes shouldBe eu.darken.capod.R.drawable.popup_pro_earbud
     }
 
     @Test

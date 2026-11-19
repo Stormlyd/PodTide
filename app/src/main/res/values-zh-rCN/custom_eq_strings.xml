@@ -15,4 +15,7 @@
     <string name="custom_eq_device_recommended">设备当前报告：推荐</string>
     <string name="custom_eq_device_custom">设备当前报告：自定义 · %1$d / %2$d / %3$d</string>
     <string name="custom_eq_not_confirmed">均衡器设置未得到设备确认，请重试。</string>
+    <string name="custom_eq_current">设备当前已是该设置。</string>
+    <string name="custom_eq_device_now_matches">设备现已报告了本次请求的设置。</string>
+    <string name="custom_eq_unconfirmed">尚未收到匹配的设备回报，写入可能仍未生效。</string>
 </resources>

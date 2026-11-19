@@ -4,6 +4,7 @@ import eu.darken.capod.monitor.core.ble.BlePodMonitor
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.comparables.shouldBeLessThan
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import org.junit.jupiter.api.Test
 import testhelpers.BaseTest
 
@@ -42,5 +43,17 @@ class TroubleShooterViewModelTest : BaseTest() {
 
         batchingOnly shouldBeLessThan filteringAndBatching
         batchingOnly shouldBeLessThan everything
+    }
+
+    @Test
+    fun `scan failure distinguishes registration errors from a silent window`() {
+        val (rejected, rejectedType) = TroubleShooterViewModel.scanFailure("scan failed (code=3)")
+        rejected shouldBe "BLE scan could not run on this phone: scan failed (code=3)"
+        rejectedType shouldBe TroubleShooterViewModel.BleState.Result.Failure.Type.PHONE
+
+        val (silent, silentType) = TroubleShooterViewModel.scanFailure(null)
+        silent shouldBe "Scan registered but no BLE data arrived within the window."
+        silentType shouldBe TroubleShooterViewModel.BleState.Result.Failure.Type.PHONE
+        silent shouldNotBe rejected
     }
 }

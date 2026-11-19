@@ -19,11 +19,13 @@ import eu.darken.capod.monitor.core.ble.BlePodMonitor
 import eu.darken.capod.monitor.core.ble.BleScanModeController
 import eu.darken.capod.monitor.core.primaryDevice
 import eu.darken.capod.pods.core.apple.ble.BlePodSnapshot
+import eu.darken.capod.pods.core.apple.ble.devices.ApplePods
 import eu.darken.capod.pods.core.unknown.UnknownSnapshotBle
 import eu.darken.capod.profiles.core.AppleDeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfilesRepo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
@@ -89,10 +91,12 @@ class TroubleShooterViewModel @Inject constructor(
             log(TAG, WARN) { "troubleShootBle() ignored, a run is already in progress" }
             return@launch
         }
-        log(TAG, INFO) { "troubleShootBle()" }
+        val runId = "run-${timeSource.elapsedRealtime()}"
+        log(TAG, INFO) { "troubleShootBle($runId)" }
 
         try {
             bleScanModeController.withTemporaryOverride(ScannerMode.LOW_LATENCY) override@{
+                progress("Diagnostics $runId started.")
                 // The combo under which supported headphones were detected (set in sweep 2).
                 var supportedCombo: BlePodMonitor.CompatOverride? = null
                 // Set only when the run reaches a terminal success. Persisted on exit; staying null
@@ -110,30 +114,56 @@ class TroubleShooterViewModel @Inject constructor(
                         }
                     }
 
-                    val doScan: suspend (BlePodMonitor.CompatOverride, Boolean) -> Collection<BlePodSnapshot> =
-                        { combo, unfiltered ->
+                    val doScan: suspend (BlePodMonitor.CompatOverride, Boolean, Int) -> ScanAttempt =
+                        { combo, unfiltered, stage ->
                             progress(
-                                "SCAN - Settings: filteringDisabled=${combo.offloadedFilteringDisabled}, " +
+                                "SCAN[$stage] - Settings: filteringDisabled=${combo.offloadedFilteringDisabled}, " +
                                     "batchingDisabled=${combo.offloadedBatchingDisabled}, " +
                                     "indirectCallback=${combo.indirectCallback}, unfiltered=$unfiltered"
                             )
+                            blePodMonitor.clearScanIssue()
                             blePodMonitor.setCompatOverride(combo)
                             blePodMonitor.setUnfilteredOverride(unfiltered)
-                            val devices = collectFreshDevices()
-                            log(TAG) { "SCAN: Fresh BLE devices: $devices" }
-                            if (devices.isNotEmpty()) {
-                                progress("SCAN: Received data from ${devices.size} BLE devices")
-                            } else {
-                                progress("SCAN: No data received")
+                            val fresh = collectFreshDevices()
+                            val issue = blePodMonitor.lastScanIssue.value
+                            val recognized = fresh.devices.count { it !is UnknownSnapshotBle }
+                            val configuredAddresses = profilesRepo.profiles
+                                .first()
+                                .mapNotNull { it.address }
+                                .toSet()
+                            val matched = fresh.devices.count { it.address in configuredAddresses }
+                            val reasonCounts = fresh.devices
+                                .mapNotNull { (it.meta as? ApplePods.AppleMeta)?.matchReason }
+                                .groupingBy { it.name }
+                                .eachCount()
+                            progress(
+                                "SCAN[$stage]: rawBroadcasts=${fresh.rawCount}, " +
+                                    "distinctDevices=${fresh.devices.size}, recognized=$recognized, " +
+                                    "matchedConfigured=$matched, issue=${issue ?: "none"}"
+                            )
+                            if (reasonCounts.isNotEmpty()) {
+                                progress("SCAN[$stage] identity: ${reasonCounts.entries.joinToString { "${it.key}=${it.value}" }}")
                             }
-                            devices
+                            log(TAG) { "SCAN[$stage]($runId): Fresh BLE devices: ${fresh.devices}" }
+                            ScanAttempt(devices = fresh.devices, issue = issue)
                         }
 
                     run {
                         progress("Checking if we can receive BLE data at all.")
-                        val gotData = COMPAT_COMBOS.any { combo -> doScan(combo, true).isNotEmpty() }
+                        var lastIssue: String? = null
+                        var gotData = false
+                        for ((index, combo) in COMPAT_COMBOS.withIndex()) {
+                            val attempt = doScan(combo, true, index + 1)
+                            if (attempt.issue != null) lastIssue = attempt.issue
+                            if (attempt.devices.isNotEmpty()) {
+                                gotData = true
+                                break
+                            }
+                        }
                         if (!gotData) {
-                            failure("Phone is not receiving BLE data.", BleState.Result.Failure.Type.PHONE)
+                            // A rejected registration is not the same finding as a silent window.
+                            val (message, type) = scanFailure(lastIssue)
+                            failure(message, type)
                             return@override
                         }
                     }
@@ -142,8 +172,14 @@ class TroubleShooterViewModel @Inject constructor(
 
                     run {
                         progress("Checking for supported headphones.")
-                        supportedCombo = COMPAT_COMBOS.firstOrNull { combo ->
-                            doScan(combo, false).any { it !is UnknownSnapshotBle }
+                        supportedCombo = null
+                        for ((index, combo) in COMPAT_COMBOS.withIndex()) {
+                            val attempt = doScan(combo, false, index + 1)
+                            val recognized = attempt.devices.count { it !is UnknownSnapshotBle }
+                            if (recognized > 0) {
+                                supportedCombo = combo
+                                break
+                            }
                         }
                         if (supportedCombo == null) {
                             failure("No compatible headphones found", BleState.Result.Failure.Type.HEADPHONES)
@@ -167,7 +203,7 @@ class TroubleShooterViewModel @Inject constructor(
                     run {
                         progress("Checking all closeby headphones.")
 
-                        val otherDevices = collectFreshDevices()
+                        val otherDevices = collectFreshDevices().devices
                         otherDevices.forEachIndexed { index, dev -> log(TAG) { "Device #$index: $dev" } }
 
                         val candidate = otherDevices
@@ -239,7 +275,7 @@ class TroubleShooterViewModel @Inject constructor(
      * restart the scan after a throttle, and [BlePodMonitor] keeps a 20s device cache, so without a
      * freshness cutoff a stale observation from a previous combo could be mistaken for a "win".
      */
-    private suspend fun collectFreshDevices(): List<BlePodSnapshot> {
+    private suspend fun collectFreshDevices(): FreshScan {
         // Drop anything cached under a previous combo so it can't satisfy this attempt.
         blePodMonitor.clearDeviceCache()
         val freshThreshold = timeSource.now().plusMillis(SCAN_SETTLE_MS)
@@ -252,9 +288,11 @@ class TroubleShooterViewModel @Inject constructor(
                 .takeWhile { timeSource.elapsedRealtime() - start < STEP_TIME - 1000 }
                 .collect { snapshots -> collected.addAll(snapshots) }
         }
-        return collected
-            .filter { it.seenLastAt >= freshThreshold }
-            .distinctBy { it.address }
+        val fresh = collected.filter { it.seenLastAt >= freshThreshold }
+        return FreshScan(
+            rawCount = fresh.size,
+            devices = fresh.distinctBy { it.address },
+        )
     }
 
     private fun persistCompat(combo: BlePodMonitor.CompatOverride) {
@@ -262,6 +300,16 @@ class TroubleShooterViewModel @Inject constructor(
         generalSettings.isOffloadedBatchingDisabled.valueBlocking = combo.offloadedBatchingDisabled
         generalSettings.useIndirectScanResultCallback.valueBlocking = combo.indirectCallback
     }
+
+    private data class FreshScan(
+        val rawCount: Int,
+        val devices: List<BlePodSnapshot>,
+    )
+
+    private data class ScanAttempt(
+        val devices: List<BlePodSnapshot>,
+        val issue: String?,
+    )
 
     sealed class BleState {
         class Intro : BleState()
@@ -337,5 +385,13 @@ class TroubleShooterViewModel @Inject constructor(
         )
 
         val TAG = logTag("TroubleShooter", "VM")
+
+        /** Distinguish a rejected scan registration from a registered scan that stayed silent. */
+        internal fun scanFailure(lastIssue: String?): Pair<String, BleState.Result.Failure.Type> =
+            if (lastIssue != null) {
+                "BLE scan could not run on this phone: $lastIssue" to BleState.Result.Failure.Type.PHONE
+            } else {
+                "Scan registered but no BLE data arrived within the window." to BleState.Result.Failure.Type.PHONE
+            }
     }
 }

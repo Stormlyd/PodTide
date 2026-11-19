@@ -44,7 +44,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import eu.darken.capod.R
+import eu.darken.capod.monitor.core.AapStage
 import eu.darken.capod.monitor.core.visibleAncModes
+import eu.darken.capod.main.ui.overview.cards.components.AdaptiveNoiseControl
 import eu.darken.capod.main.ui.overview.cards.components.AncModeSelector
 import eu.darken.capod.main.ui.overview.cards.components.CompactBatterySummary
 import eu.darken.capod.main.ui.overview.cards.components.DebugSection
@@ -82,6 +84,7 @@ fun SinglePodsCard(
     batteryEstimate: BatteryEstimate? = null,
     onToggleCollapse: (() -> Unit)? = null,
     onAncModeChange: ((AapSetting.AncMode.Value) -> Unit)? = null,
+    onAdaptiveNoiseChange: ((Int) -> Unit)? = null,
     onUpgrade: (() -> Unit)? = null,
     onDeviceSettings: (() -> Unit)? = null,
     onEditProfile: (() -> Unit)? = null,
@@ -188,6 +191,7 @@ fun SinglePodsCard(
                     now = now,
                     batteryEstimate = batteryEstimate,
                     onAncModeChange = onAncModeChange,
+                    onAdaptiveNoiseChange = onAdaptiveNoiseChange,
                 )
             }
         }
@@ -201,6 +205,7 @@ private fun ColumnScope.SinglePodsCardExpanded(
     now: Instant,
     batteryEstimate: BatteryEstimate?,
     onAncModeChange: ((AapSetting.AncMode.Value) -> Unit)?,
+    onAdaptiveNoiseChange: ((Int) -> Unit)?,
 ) {
     val context = LocalContext.current
 
@@ -333,16 +338,43 @@ private fun ColumnScope.SinglePodsCardExpanded(
         )
     }
 
-    // ANC mode selector
+    // ANC mode selector — capability first, channel state explained separately.
     val ancMode = device.ancMode
-    if (device.isAapConnected && device.hasAncControl && ancMode != null) {
+    if (device.hasAncControl) {
         Spacer(modifier = Modifier.height(12.dp))
-        AncModeSelector(
-            currentMode = ancMode.current,
-            supportedModes = device.visibleAncModes,
-            onModeSelected = { onAncModeChange?.invoke(it) },
-            pendingMode = device.pendingAncMode,
-        )
+        if (ancMode != null) {
+            AncModeSelector(
+                currentMode = ancMode.current,
+                supportedModes = device.visibleAncModes,
+                onModeSelected = { onAncModeChange?.invoke(it) },
+                pendingMode = device.pendingAncMode,
+                enabled = device.isAapReady,
+            )
+        } else {
+            Text(
+                text = stringResource(
+                    when (device.aapStage) {
+                        AapStage.NOT_CONNECTED -> R.string.noise_control_waiting_system
+                        AapStage.NO_SESSION -> R.string.noise_control_channel_failed
+                        AapStage.OPENING, AapStage.HANDSHAKING -> R.string.noise_control_waiting_channel
+                        AapStage.READY -> R.string.noise_control_waiting_state
+                    }
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            )
+        }
+        val adaptiveMode = ancMode?.current == AapSetting.AncMode.Value.ADAPTIVE ||
+            device.pendingAncMode == AapSetting.AncMode.Value.ADAPTIVE
+        if (device.hasAdaptiveAudioNoise && adaptiveMode) {
+            Spacer(modifier = Modifier.height(8.dp))
+            AdaptiveNoiseControl(
+                level = device.adaptiveAudioNoise?.level ?: 50,
+                enabled = device.isAapReady,
+                onLevelChange = { onAdaptiveNoiseChange?.invoke(it) },
+            )
+        }
     }
 
     // Debug info

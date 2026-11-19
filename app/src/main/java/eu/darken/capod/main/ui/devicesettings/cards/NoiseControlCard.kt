@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
 import eu.darken.capod.R
 import eu.darken.capod.common.compose.Preview2
 import eu.darken.capod.common.compose.PreviewWrapper
@@ -50,6 +51,7 @@ import eu.darken.capod.main.ui.devicesettings.components.SettingsCompoundHeader
 import eu.darken.capod.main.ui.devicesettings.previewFullState
 import eu.darken.capod.main.ui.overview.cards.components.AncModeSelector
 import eu.darken.capod.monitor.core.PodDevice
+import eu.darken.capod.monitor.core.AapStage
 import eu.darken.capod.monitor.core.resolvedAncCycleMask
 import eu.darken.capod.monitor.core.visibleAncModes
 import eu.darken.capod.pods.core.apple.PodModel
@@ -74,7 +76,18 @@ internal fun NoiseControlCard(
 ) {
     val context = LocalContext.current
     val resources = LocalResources.current
-    val ancMode = device.ancMode ?: return
+    val ancMode = device.ancMode
+    if (ancMode == null) {
+        // Capability is known from the model, but the control channel has not produced a mode yet.
+        // Keep the entry visible with an honest stage instead of hiding it as "unsupported".
+        SettingsSection(title = stringResource(R.string.device_settings_noise_control_label)) {
+            SettingsInfoBox(
+                text = stringResource(noiseControlPendingText(device)),
+                type = InfoBoxType.INFO,
+            )
+        }
+        return
+    }
     val adaptiveNoise = device.adaptiveAudioNoise
     val cycleMask = device.resolvedAncCycleMask
     val cycleSummary = if (cycleMask != null) listeningModeCycleSummary(context, ancMode.supported, cycleMask) else null
@@ -106,7 +119,7 @@ internal fun NoiseControlCard(
         )
         val ncWithOneAirPod = device.ncWithOneAirPod
         val showNcWithOneAirPod = features.hasNcOneAirpod && ncWithOneAirPod != null
-        val hasNoiseExtras = (features.hasAdaptiveAudioNoise && adaptiveNoise != null) ||
+        val hasNoiseExtras = features.hasAdaptiveAudioNoise ||
             features.hasListeningModeCycle ||
             showNcWithOneAirPod
         if (hasNoiseExtras) {
@@ -170,9 +183,9 @@ internal fun NoiseControlCard(
                 enabled = enabled,
             )
         }
-        if (features.hasAdaptiveAudioNoise && adaptiveNoise != null) {
+        if (features.hasAdaptiveAudioNoise) {
             AdaptiveNoiseSlider(
-                level = adaptiveNoise.level,
+                level = adaptiveNoise?.level ?: 50,
                 onLevelChange = onAdaptiveAudioNoiseChange,
                 enabled = enabled,
                 isAdaptiveMode = ancMode.current == AapSetting.AncMode.Value.ADAPTIVE
@@ -378,6 +391,14 @@ private fun AapSetting.AncMode.Value.listeningModeCycleDialogLabel(
     AapSetting.AncMode.Value.ON -> context.getString(R.string.device_settings_listening_mode_cycle_anc)
     AapSetting.AncMode.Value.TRANSPARENCY -> context.getString(R.string.device_settings_listening_mode_cycle_transparency)
     AapSetting.AncMode.Value.ADAPTIVE -> context.getString(R.string.device_settings_listening_mode_cycle_adaptive)
+}
+
+@StringRes
+private fun noiseControlPendingText(device: PodDevice): Int = when (device.aapStage) {
+    AapStage.NOT_CONNECTED -> R.string.noise_control_waiting_system
+    AapStage.NO_SESSION -> R.string.noise_control_channel_failed
+    AapStage.OPENING, AapStage.HANDSHAKING -> R.string.noise_control_waiting_channel
+    AapStage.READY -> R.string.noise_control_waiting_state
 }
 
 @Preview2

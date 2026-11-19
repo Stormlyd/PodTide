@@ -24,14 +24,12 @@ import androidx.compose.ui.unit.dp
 import eu.darken.capod.R
 import eu.darken.capod.monitor.core.PodDevice
 import eu.darken.capod.pods.core.apple.PodModel
-import eu.darken.capod.pods.core.apple.usesProHeroArt
 import kotlin.math.roundToInt
 
 /** Compact native status card. Only observed audio connection and individual batteries are shown. */
 @Composable
 fun TopPopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Modifier, onOpen: () -> Unit = {}) {
     val colors = MaterialTheme.colorScheme
-    val proArtwork = device.model.usesProHeroArt
     Surface(modifier.widthIn(max = 360.dp), shape = RoundedCornerShape(28.dp),
         color = colors.surface, border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = .45f)), shadowElevation = 6.dp) {
         Row(Modifier.background(Brush.verticalGradient(listOf(colors.surface.copy(alpha = .98f), colors.surfaceContainer.copy(alpha = .96f))))
@@ -39,8 +37,8 @@ fun TopPopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier =
             // The complete content can scroll on short displays; the close affordance remains fixed.
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 Row(Modifier.fillMaxWidth().clickable(onClick = onOpen), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Image(painterResource(if (proArtwork) R.drawable.popup_pro_hero else device.iconRes), null,
-                        Modifier.size(if (proArtwork) 56.dp else 44.dp), contentScale = ContentScale.Fit)
+                    Image(painterResource(R.drawable.popup_pro_hero), null,
+                        Modifier.size(56.dp), contentScale = ContentScale.Fit)
                     Text(device.label?.takeIf { it.isNotBlank() } ?: device.getLabel(LocalContext.current),
                         Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 }

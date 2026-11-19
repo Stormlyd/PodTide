@@ -32,9 +32,17 @@ internal fun CustomEqCard(
     val model = remember(device.profileId) { CustomEqViewModel(device.customEq) }
     val report = device.customEq
     val confirmationRevision = device.aap?.customEqConfirmationRevision ?: 0L
-    LaunchedEffect(report, confirmationRevision) { model.observe(report, confirmationRevision) }
-    val draft = model.draft
     val pending = device.pendingCustomEq
+    LaunchedEffect(report, confirmationRevision, pending, device.customEqUnconfirmed) {
+        model.observe(
+            report,
+            confirmationRevision,
+            pending = pending != null,
+            unconfirmed = device.customEqUnconfirmed != null,
+        )
+    }
+    val draft = model.draft
+    val unchanged = report == draft
 
     SettingsSection(title = stringResource(R.string.custom_eq_title)) {
         Column(
@@ -61,7 +69,10 @@ internal fun CustomEqCard(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = model::reset) { Text(stringResource(R.string.custom_eq_reset)) }
-                Button(onClick = { onApply(model.markApplying(confirmationRevision)) }, enabled = enabled && pending == null) {
+                Button(
+                    onClick = { onApply(model.markApplying(confirmationRevision)) },
+                    enabled = enabled && pending == null && !unchanged,
+                ) {
                     Text(stringResource(R.string.custom_eq_apply))
                 }
             }
@@ -69,6 +80,9 @@ internal fun CustomEqCard(
                 text = when {
                     pending != null && device.aap?.isEitherPodInEar == false -> stringResource(R.string.custom_eq_queued)
                     pending != null -> stringResource(R.string.custom_eq_pending)
+                    model.lateReport && report == draft -> stringResource(R.string.custom_eq_device_now_matches)
+                    unchanged -> stringResource(R.string.custom_eq_current)
+                    model.awaitingReport -> stringResource(R.string.custom_eq_unconfirmed)
                     report == null -> stringResource(R.string.custom_eq_no_report)
                     report.isEnabled -> stringResource(R.string.custom_eq_device_custom, report.low, report.mid, report.high)
                     else -> stringResource(R.string.custom_eq_device_recommended)

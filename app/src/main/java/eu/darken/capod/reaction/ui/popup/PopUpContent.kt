@@ -48,14 +48,12 @@ import androidx.compose.ui.unit.dp
 import eu.darken.capod.R
 import eu.darken.capod.monitor.core.PodDevice
 import eu.darken.capod.pods.core.apple.PodModel
-import eu.darken.capod.pods.core.apple.usesProHeroArt
 import kotlin.math.roundToInt
 
 /** The production overlay card. Its surface is translucent; it does not sample or blur other apps. */
 @Composable
 fun PopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Modifier, onOpen: () -> Unit = {}) {
     val colors = MaterialTheme.colorScheme
-    val proArtwork = device.model.usesProHeroArt
     val shape = RoundedCornerShape(30.dp)
     CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
         BoxWithConstraints(modifier.padding(8.dp)) {
@@ -88,14 +86,14 @@ fun PopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Mo
                         device.hasDualPods -> {
                             // At accessibility font sizes use roomy rows, keeping labels and percentages intact.
                             if (LocalDensity.current.fontScale > 1.5f) {
-                                BatteryRing(stringResource(R.string.popup_left), device.batteryLeft, device.isLeftPodCharging == true, if (proArtwork) R.drawable.popup_pro_earbud else device.leftPodIcon, horizontal = true)
-                                if (device.hasCase) BatteryRing(stringResource(R.string.popup_case), device.batteryCase, device.isCaseCharging == true, if (proArtwork) R.drawable.popup_pro_case else device.caseIcon, horizontal = true)
-                                BatteryRing(stringResource(R.string.popup_right), device.batteryRight, device.isRightPodCharging == true, if (proArtwork) R.drawable.popup_pro_earbud else device.rightPodIcon, horizontal = true, mirrorIcon = proArtwork)
+                                BatteryRing(stringResource(R.string.popup_left), device.batteryLeft, device.isLeftPodCharging == true, R.drawable.popup_pro_earbud, horizontal = true)
+                                if (device.hasCase) BatteryRing(stringResource(R.string.popup_case), device.batteryCase, device.isCaseCharging == true, R.drawable.popup_pro_case, horizontal = true)
+                                BatteryRing(stringResource(R.string.popup_right), device.batteryRight, device.isRightPodCharging == true, R.drawable.popup_pro_earbud, horizontal = true, mirrorIcon = true)
                             } else {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                                    BatteryRing(stringResource(R.string.popup_left), device.batteryLeft, device.isLeftPodCharging == true, if (proArtwork) R.drawable.popup_pro_earbud else device.leftPodIcon, Modifier.weight(1f))
-                                    if (device.hasCase) BatteryRing(stringResource(R.string.popup_case), device.batteryCase, device.isCaseCharging == true, if (proArtwork) R.drawable.popup_pro_case else device.caseIcon, Modifier.weight(1f))
-                                    BatteryRing(stringResource(R.string.popup_right), device.batteryRight, device.isRightPodCharging == true, if (proArtwork) R.drawable.popup_pro_earbud else device.rightPodIcon, Modifier.weight(1f), mirrorIcon = proArtwork)
+                                    BatteryRing(stringResource(R.string.popup_left), device.batteryLeft, device.isLeftPodCharging == true, R.drawable.popup_pro_earbud, Modifier.weight(1f))
+                                    if (device.hasCase) BatteryRing(stringResource(R.string.popup_case), device.batteryCase, device.isCaseCharging == true, R.drawable.popup_pro_case, Modifier.weight(1f))
+                                    BatteryRing(stringResource(R.string.popup_right), device.batteryRight, device.isRightPodCharging == true, R.drawable.popup_pro_earbud, Modifier.weight(1f), mirrorIcon = true)
                                 }
                             }
                         }
@@ -111,45 +109,21 @@ fun PopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Mo
 
 @Composable
 private fun PopupArtwork(device: PodDevice, compact: Boolean) {
-    val pro = device.model.usesProHeroArt
     val height = if (compact) 100.dp else 182.dp
-    if (pro) {
-        var revealed by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { revealed = true }
-        val rise by animateFloatAsState(if (revealed) 1f else 0f, tween(750), label = "earbud rise")
-        Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.BottomCenter) {
-            Image(painterResource(R.drawable.popup_pro_case), null,
-                Modifier.fillMaxWidth(.80f).height(height * .68f), contentScale = ContentScale.Fit)
-            Image(painterResource(R.drawable.popup_pro_earbud), null,
-                Modifier.align(Alignment.TopCenter).offset(x = (-44).dp, y = (30 * (1f - rise)).dp)
-                    .height(height * .57f).width(height * .57f).graphicsLayer { alpha = .5f + .5f * rise },
-                contentScale = ContentScale.Fit)
-            Image(painterResource(R.drawable.popup_pro_earbud), null,
-                Modifier.align(Alignment.TopCenter).offset(x = 44.dp, y = (30 * (1f - rise)).dp)
-                    .height(height * .57f).width(height * .57f).graphicsLayer { scaleX = -1f; alpha = .5f + .5f * rise },
-                contentScale = ContentScale.Fit)
-        }
-    } else if (device.hasDualPods) {
-        // Icon-art models: keep the artwork at icon scale inside a fixed row instead of blowing a
-        // square 96dp glyph up to the full popup illustration height.
-        val iconSize = if (compact) 52.dp else 64.dp
-        Box(Modifier.fillMaxWidth().height(height * 0.5f), contentAlignment = Alignment.Center) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                Image(painterResource(device.leftPodIcon), null, Modifier.size(iconSize), contentScale = ContentScale.Fit)
-                if (device.hasCase) {
-                    Image(painterResource(device.caseIcon), null, Modifier.size(iconSize * 1.15f), contentScale = ContentScale.Fit)
-                }
-                Image(painterResource(device.rightPodIcon), null, Modifier.size(iconSize), contentScale = ContentScale.Fit)
-            }
-        }
-    } else {
-        Box(Modifier.fillMaxWidth().height(height * 0.5f), contentAlignment = Alignment.Center) {
-            Image(painterResource(device.iconRes), null, Modifier.size(if (compact) 52.dp else 64.dp), contentScale = ContentScale.Fit)
-        }
+    var revealed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { revealed = true }
+    val rise by animateFloatAsState(if (revealed) 1f else 0f, tween(750), label = "earbud rise")
+    Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.BottomCenter) {
+        Image(painterResource(R.drawable.popup_pro_case), null,
+            Modifier.fillMaxWidth(.80f).height(height * .68f), contentScale = ContentScale.Fit)
+        Image(painterResource(R.drawable.popup_pro_earbud), null,
+            Modifier.align(Alignment.TopCenter).offset(x = (-44).dp, y = (30 * (1f - rise)).dp)
+                .height(height * .57f).width(height * .57f).graphicsLayer { alpha = .5f + .5f * rise },
+            contentScale = ContentScale.Fit)
+        Image(painterResource(R.drawable.popup_pro_earbud), null,
+            Modifier.align(Alignment.TopCenter).offset(x = 44.dp, y = (30 * (1f - rise)).dp)
+                .height(height * .57f).width(height * .57f).graphicsLayer { scaleX = -1f; alpha = .5f + .5f * rise },
+            contentScale = ContentScale.Fit)
     }
 }
 

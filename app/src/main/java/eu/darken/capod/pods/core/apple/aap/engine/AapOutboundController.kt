@@ -66,7 +66,7 @@ internal class AapOutboundController(
                         result.optimisticState ?: podState,
                         result.snapshot,
                         if (command is AapCommand.SetAncMode) command.mode else result.snapshot.pendingAncMode,
-                    ).let { if (command is AapCommand.SetCustomEq) it.copy(pendingCustomEq = command.value) else it },
+                    ).let { if (command is AapCommand.SetCustomEq) it.copy(pendingCustomEq = command.value, customEqUnconfirmed = null) else it },
                     runtimeState = runtimeState.copy(pendingCommands = result.pendingCommands),
                     logs = listOf("No pod in ear, queuing: ${command::class.simpleName}"),
                 )
@@ -81,7 +81,7 @@ internal class AapOutboundController(
                 updatedPodState, result.snapshot,
                 if (command is AapCommand.SetAncMode) command.mode else updatedPodState.pendingAncMode,
             )
-            if (command is AapCommand.SetCustomEq) updatedPodState = updatedPodState.copy(pendingCustomEq = command.value)
+            if (command is AapCommand.SetCustomEq) updatedPodState = updatedPodState.copy(pendingCustomEq = command.value, customEqUnconfirmed = null)
             updatedRuntimeState = updatedRuntimeState.copy(pendingCommands = result.pendingCommands)
         }
 
@@ -126,7 +126,10 @@ internal class AapOutboundController(
             ?: result.commands.lastOrNull { it !is AapCommand.SetCustomEq }
         val verificationCheck = toVerify?.let { coordinator.verificationFor(it) }
         return OutboundDecision(
-            podState = updatedPodState.copy(pendingCustomEq = eqCommand?.value ?: updatedPodState.pendingCustomEq),
+            podState = updatedPodState.copy(
+                pendingCustomEq = eqCommand?.value ?: updatedPodState.pendingCustomEq,
+                customEqUnconfirmed = if (eqCommand != null) null else updatedPodState.customEqUnconfirmed,
+            ),
             runtimeState = runtimeState.copy(
                 pendingCommands = result.pendingCommands,
                 verification = if (verificationCheck != null) {
@@ -160,12 +163,29 @@ internal class AapOutboundController(
         observedKey: kotlin.reflect.KClass<out AapSetting>,
     ): OutboundDecision {
         if (observedKey == AapSetting.CustomEq::class) {
-            val eqVerification = runtimeState.customEqVerification ?: return OutboundDecision(podState, runtimeState)
+            val eqVerification = runtimeState.customEqVerification
+            if (eqVerification == null) {
+                // A write that timed out keeps a bounded target. If a later *fresh* 0x63 report
+                // matches it, surface that the device now reports the target; never use this path
+                // to acknowledge a newer request.
+                val lateTarget = podState.customEqUnconfirmed ?: return OutboundDecision(podState, runtimeState)
+                if (podState.setting<AapSetting.CustomEq>() != lateTarget) {
+                    return OutboundDecision(podState, runtimeState)
+                }
+                return OutboundDecision(
+                    podState = podState.copy(
+                        customEqUnconfirmed = null,
+                        customEqConfirmationRevision = podState.customEqConfirmationRevision + 1,
+                    ),
+                    runtimeState = runtimeState,
+                )
+            }
             val check = coordinator.verificationFor(eqVerification.command) ?: return OutboundDecision(podState, runtimeState)
             if (!check(podState)) return OutboundDecision(podState, runtimeState)
             return OutboundDecision(
                 podState = clearPendingForCommand(podState, eqVerification.command).copy(
                     customEqConfirmationRevision = podState.customEqConfirmationRevision + 1,
+                    customEqUnconfirmed = null,
                 ),
                 runtimeState = runtimeState.copy(customEqVerification = null),
                 timerActions = listOf(EngineTimerAction.Cancel(EngineTimerKey.CustomEqVerification)),
@@ -254,7 +274,8 @@ internal class AapOutboundController(
             )
         }
         return OutboundDecision(
-            podState = clearPendingForCommand(podState, verification.command),
+            podState = clearPendingForCommand(podState, verification.command)
+                .copy(customEqUnconfirmed = (verification.command as AapCommand.SetCustomEq).value),
             runtimeState = runtimeState.copy(customEqVerification = null),
             rejectedCommand = verification.command,
         )

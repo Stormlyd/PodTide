@@ -395,7 +395,12 @@ class DeviceSettingsViewModel @Inject constructor(
 
     fun setToneVolume(level: Int) = sendProGated(AapCommand.SetToneVolume(level))
 
-    fun setAdaptiveAudioNoise(level: Int) = send(AapCommand.SetAdaptiveAudioNoise(level))
+    fun setAdaptiveAudioNoise(level: Int) = launch {
+        sendInternal(AapCommand.SetAdaptiveAudioNoise(level))
+        targetProfileId.value?.let { profileId ->
+            profilesRepo.updateAppleProfile(profileId) { it.copy(learnedAdaptiveNoiseLevel = level) }
+        }
+    }
 
     fun setVolumeSwipe(enabled: Boolean) = send(AapCommand.SetVolumeSwipe(enabled))
 

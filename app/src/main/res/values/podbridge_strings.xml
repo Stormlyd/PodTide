@@ -18,4 +18,34 @@
     <string name="settings_monitor_idle_notification_description">When off, the \"Ready for automatic connection\" notification moves to a silent, collapsed channel without a status bar icon. Android requires a notification for background monitoring, so it cannot be removed entirely.</string>
     <string name="notification_channel_device_status_quiet_label">Background monitoring (silent)</string>
     <string name="settings_sleep_detection_confirm_info">To avoid false pauses, PodTide only pauses after the earbuds report sleep repeatedly over several minutes while both pods are worn.</string>
+    <string name="noise_control_waiting_system">Noise control is supported, but the earbuds are not connected to the phone yet.</string>
+    <string name="noise_control_waiting_channel">Connected. Establishing the advanced control channel…</string>
+    <string name="noise_control_waiting_state">Control channel ready. Waiting for the earbuds to report the current mode…</string>
+    <string name="noise_control_channel_failed">The advanced control channel could not be established. Try the troubleshooter or reconnect the earbuds.</string>
+    <string name="device_match_issue_title">Broadcast not linked to a profile</string>
+    <string name="device_match_issue_no_profiles">A compatible broadcast is nearby, but no profile matches it. Add this earbud in device management.</string>
+    <string name="device_match_issue_ambiguous">Several keyless profiles share this model, so this broadcast cannot be assigned safely. Bind the system-paired address or remove duplicate profiles.</string>
+    <string name="device_match_issue_key_unresolved">This profile has an identity key, but the key could not verify this broadcast. Check the paired address or fetch the key again.</string>
+    <string name="device_match_issue_model_mismatch">The broadcast model does not match the configured profile. Re-select the paired device or correct the model.</string>
+    <string name="adaptive_noise_strength_label">Adaptive audio strength</string>
+    <string name="adaptive_noise_strength_description" formatted="false">Continuously balances noise reduction and awareness (0% = more transparency, 100% = stronger noise reduction).</string>
+    <string name="sound_level_title">Environmental sound level</string>
+    <string name="sound_level_subtitle">Estimated with the phone microphone</string>
+    <string name="sound_level_start">Start measuring</string>
+    <string name="sound_level_stop">Stop measuring</string>
+    <string name="sound_level_permission_hint">Microphone permission is required to estimate the environmental sound level.</string>
+    <string name="sound_level_grant">Grant microphone permission</string>
+    <string name="sound_level_band_quiet">Quiet</string>
+    <string name="sound_level_band_normal">Normal</string>
+    <string name="sound_level_band_loud">Loud</string>
+    <string name="sound_level_band_very_loud">Very loud</string>
+    <string name="sound_level_calibration_label">Calibration · %1$d dB</string>
+    <string name="sound_level_calibration_description">Adjust if the reading differs from a reference sound-level meter.</string>
+    <string name="sound_level_privacy">Computed live; no audio is stored.</string>
+    <string name="sound_level_error">Microphone failed to start: %1$s</string>
+    <string name="widget_sound_level_description">Shows the most recent environmental sound-level estimate.</string>
+    <string name="widget_sound_level_empty">No measurement yet</string>
+    <string name="widget_sound_level_measured_at">Last measured %1$s</string>
+    <string name="permission_record_audio_label">Microphone (sound level)</string>
+    <string name="permission_record_audio_description">Used only while the sound-level meter is running to estimate the environmental dB level. Audio is not stored.</string>
 </resources>

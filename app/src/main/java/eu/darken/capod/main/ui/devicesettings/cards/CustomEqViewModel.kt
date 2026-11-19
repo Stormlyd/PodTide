@@ -22,11 +22,47 @@ internal class CustomEqViewModel(initialReport: AapSetting.CustomEq?) {
     var edited by mutableStateOf(false)
         private set
 
-    fun observe(report: AapSetting.CustomEq?, confirmationRevision: Long = 0) {
+    /** True while a request is queued or sent and still waiting for a matching device report. */
+    var awaitingReport by mutableStateOf(false)
+        private set
+
+    /** A late but matching report arrived after the request had already stopped waiting. */
+    var lateReport by mutableStateOf(false)
+        private set
+
+    fun observe(
+        report: AapSetting.CustomEq?,
+        confirmationRevision: Long = 0,
+        pending: Boolean = false,
+        unconfirmed: Boolean = false,
+    ) {
         val applied = applying
-        if (applied != null && confirmationRevision > applied.confirmationRevision && report == applied.value) {
-            applying = null
-            if (editRevision == applied.editRevision) edited = false
+        if (applied != null) {
+            val confirmedNow =
+                confirmationRevision > applied.confirmationRevision && report == applied.value
+            val lateMatch = unconfirmed && report == applied.value
+            when {
+                confirmedNow -> {
+                    applying = null
+                    awaitingReport = false
+                    lateReport = false
+                    if (editRevision == applied.editRevision) edited = false
+                }
+
+                lateMatch -> {
+                    // The request window already timed out; this matching report is still useful
+                    // evidence, but it must not be presented as confirmation of a newer write.
+                    applying = null
+                    awaitingReport = false
+                    lateReport = true
+                    if (editRevision == applied.editRevision) edited = false
+                }
+
+                pending -> {
+                    awaitingReport = true
+                    lateReport = false
+                }
+            }
         }
         if (!edited && report != null) draft = report
     }
@@ -34,6 +70,8 @@ internal class CustomEqViewModel(initialReport: AapSetting.CustomEq?) {
     /** Captures the exact draft submitted by Apply, before its asynchronous socket write. */
     fun markApplying(confirmationRevision: Long): AapSetting.CustomEq {
         applying = AppliedDraft(draft, editRevision, confirmationRevision)
+        awaitingReport = true
+        lateReport = false
         edited = true
         return draft
     }

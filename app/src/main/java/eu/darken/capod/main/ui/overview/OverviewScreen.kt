@@ -6,6 +6,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -66,6 +67,10 @@ import eu.darken.capod.main.ui.overview.cards.RecoveringConnectionCard
 import eu.darken.capod.main.ui.overview.cards.ReviewCard
 import eu.darken.capod.main.ui.overview.cards.SinglePodsCard
 import eu.darken.capod.main.ui.overview.cards.TroubleshootSuggestionCard
+import eu.darken.capod.main.core.sound.SoundLevelMeter
+import eu.darken.capod.main.core.sound.SoundLevelReading
+import eu.darken.capod.main.ui.sound.SoundLevelViewModel
+import eu.darken.capod.main.ui.sound.SoundLevelCard
 import eu.darken.capod.main.ui.overview.cards.UnknownPodDeviceCard
 import eu.darken.capod.main.ui.overview.cards.UnmatchedDevicesCard
 import eu.darken.capod.monitor.core.PodDevice
@@ -91,7 +96,10 @@ internal fun unmatchedDeviceKey(device: PodDevice, index: Int): String =
     "unmatched:${device.identifier ?: "idx:$index"}"
 
 @Composable
-fun OverviewScreenHost(vm: OverviewViewModel = hiltViewModel()) {
+fun OverviewScreenHost(
+    vm: OverviewViewModel = hiltViewModel(),
+    soundVm: SoundLevelViewModel = hiltViewModel(),
+) {
     ErrorEventHandler(vm)
     NavigationEventHandler(vm)
 
@@ -168,6 +176,8 @@ fun OverviewScreenHost(vm: OverviewViewModel = hiltViewModel()) {
     }
 
     val state by vm.state.collectAsStateWithLifecycle(initialValue = null)
+    val soundReading by soundVm.lastReading.collectAsStateWithLifecycle()
+    val soundCalibration by soundVm.calibration.collectAsStateWithLifecycle()
     val currentState = state ?: return
 
     // Play's in-app review flow needs a hosting Activity. Without one the card still renders, but
@@ -191,6 +201,14 @@ fun OverviewScreenHost(vm: OverviewViewModel = hiltViewModel()) {
         onUpgrade = { vm.onUpgrade() },
         onToggleUnmatched = { vm.toggleUnmatchedDevices() },
         onAncModeChange = { device, mode -> vm.setAncMode(device, mode) },
+        onAdaptiveNoiseChange = { device, level -> vm.setAdaptiveNoise(device, level) },
+        soundLevelReading = soundReading,
+        soundLevelMeasuring = soundVm.isMeasuring,
+        soundLevelError = soundVm.error,
+        soundCalibration = soundCalibration,
+        onStartSoundLevel = soundVm::start,
+        onStopSoundLevel = soundVm::stop,
+        onSoundCalibrationChange = soundVm::setCalibration,
         onDeviceSettings = { device ->
             if (currentState.showReactionsHint) vm.dismissReactionsHint()
             vm.goToDeviceSettings(device)
@@ -219,6 +237,14 @@ fun OverviewScreen(
     onUpgrade: () -> Unit,
     onToggleUnmatched: () -> Unit,
     onAncModeChange: (PodDevice, AapSetting.AncMode.Value) -> Unit = { _, _ -> },
+    onAdaptiveNoiseChange: (PodDevice, Int) -> Unit = { _, _ -> },
+    soundLevelReading: SoundLevelReading? = null,
+    soundLevelMeasuring: Boolean = false,
+    soundLevelError: String? = null,
+    soundCalibration: Int = SoundLevelMeter.DEFAULT_CALIBRATION_DB,
+    onStartSoundLevel: () -> Unit = {},
+    onStopSoundLevel: () -> Unit = {},
+    onSoundCalibrationChange: (Int) -> Unit = {},
     onDeviceSettings: (PodDevice) -> Unit = {},
     onEditProfile: (PodDevice) -> Unit = {},
     onToggleDeviceExpansion: (PodDevice) -> Unit = {},
@@ -374,13 +400,28 @@ fun OverviewScreen(
                             { onToggleDeviceExpansion(device) }
                         } else null,
                         onAncModeChange = { mode -> onAncModeChange(device, mode) },
+                        onAdaptiveNoiseChange = { level -> onAdaptiveNoiseChange(device, level) },
                         onUpgrade = onUpgrade,
                         onDeviceSettings = { onDeviceSettings(device) },
                         onEditProfile = { onEditProfile(device) },
                     )
                 }
 
-                // 4b. Upgrade card when additional devices are hidden
+                // 4b. Environmental sound level (phone microphone, opt-in)
+                item(key = "sound_level") {
+                    SoundLevelCard(
+                        reading = soundLevelReading,
+                        isMeasuring = soundLevelMeasuring,
+                        error = soundLevelError,
+                        calibration = soundCalibration,
+                        onStart = onStartSoundLevel,
+                        onStop = onStopSoundLevel,
+                        onCalibrationChange = onSoundCalibrationChange,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+
+                // 4c. Upgrade card when additional devices are hidden
                 if (state.hiddenProfiledDeviceCount > 0 && BuildConfigWrap.FLAVOR != BuildConfigWrap.Flavor.FOSS) {
                     item(key = "device_limit_upgrade") {
                         DeviceLimitUpgradeCard(
@@ -434,6 +475,7 @@ fun OverviewScreen(
                                 showDebug = state.isDebug,
                                 now = state.now,
                                 onAncModeChange = { mode -> onAncModeChange(device, mode) },
+                                onAdaptiveNoiseChange = { level -> onAdaptiveNoiseChange(device, level) },
                                 onUpgrade = onUpgrade,
                                 onDeviceSettings = { onDeviceSettings(device) },
                             )
@@ -455,6 +497,7 @@ private fun PodDeviceCard(
     batteryEstimate: BatteryEstimate? = null,
     onToggleCollapse: (() -> Unit)? = null,
     onAncModeChange: (AapSetting.AncMode.Value) -> Unit,
+    onAdaptiveNoiseChange: (Int) -> Unit,
     onUpgrade: () -> Unit,
     onDeviceSettings: (() -> Unit)? = null,
     onEditProfile: (() -> Unit)? = null,
@@ -466,6 +509,7 @@ private fun PodDeviceCard(
             batteryEstimate = batteryEstimate,
             onToggleCollapse = onToggleCollapse,
             onAncModeChange = onAncModeChange,
+            onAdaptiveNoiseChange = onAdaptiveNoiseChange,
             onUpgrade = onUpgrade,
             onDeviceSettings = onDeviceSettings,
             onEditProfile = onEditProfile,
@@ -476,6 +520,7 @@ private fun PodDeviceCard(
             batteryEstimate = batteryEstimate,
             onToggleCollapse = onToggleCollapse,
             onAncModeChange = onAncModeChange,
+            onAdaptiveNoiseChange = onAdaptiveNoiseChange,
             onUpgrade = onUpgrade,
             onDeviceSettings = onDeviceSettings,
             onEditProfile = onEditProfile,

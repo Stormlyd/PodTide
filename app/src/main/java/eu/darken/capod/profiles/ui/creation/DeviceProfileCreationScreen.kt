@@ -66,6 +66,7 @@ import eu.darken.capod.common.error.ErrorEventHandler
 import eu.darken.capod.common.navigation.NavigationEventHandler
 import eu.darken.capod.common.toHex
 import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.artwork
 
 @Composable
 fun DeviceProfileCreationScreenHost(
@@ -336,7 +337,7 @@ private fun DeviceInfoCard(
                 leadingIcon = selectedModel?.let {
                     {
                         Icon(
-                            painter = painterResource(it.iconRes),
+                            painter = painterResource(it.artwork.popupLeft),
                             contentDescription = null,
                             modifier = Modifier.size(20.dp),
                         )
@@ -356,7 +357,7 @@ private fun DeviceInfoCard(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    painter = painterResource(model.iconRes),
+                                    painter = painterResource(model.artwork.popupLeft),
                                     contentDescription = null,
                                     modifier = Modifier.size(24.dp),
                                 )

@@ -90,13 +90,23 @@ class PermissionToolTest : BaseTest() {
         val unconditional = Permission.entries.filter {
             it != Permission.IGNORE_BATTERY_OPTIMIZATION &&
                 it != Permission.ACCESS_BACKGROUND_LOCATION &&
-                it != Permission.SYSTEM_ALERT_WINDOW
+                it != Permission.SYSTEM_ALERT_WINDOW &&
+                it != Permission.RECORD_AUDIO
         }
         for (perm in unconditional) {
             for (mode in MonitorMode.entries) {
                 for (popups in listOf(true, false)) {
                     PermissionTool.isApplicable(perm, mode, popups) shouldBe true
                 }
+            }
+        }
+    }
+
+    @Test
+    fun `optional microphone permission is never part of the global missing list`() {
+        for (mode in MonitorMode.entries) {
+            for (popups in listOf(true, false)) {
+                PermissionTool.isApplicable(Permission.RECORD_AUDIO, mode, popups) shouldBe false
             }
         }
     }

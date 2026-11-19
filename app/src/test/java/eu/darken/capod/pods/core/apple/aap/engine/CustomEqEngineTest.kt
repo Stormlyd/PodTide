@@ -75,6 +75,27 @@ class CustomEqEngineTest : BaseTest() {
     }
 
     @Test
+    fun `late matching report after timeout is reported without a live verification slot`() {
+        val controller = AapOutboundController(clock)
+        val command = AapCommand.SetCustomEq(eq)
+        val requested = controller.onCommandRequested(AapPodState(), OutboundRuntimeState(), command)
+        val retried = controller.onCustomEqVerificationTimerFired(requested.podState, requested.runtimeState)
+        val timedOut = controller.onCustomEqVerificationTimerFired(retried.podState, retried.runtimeState)
+        timedOut.podState.customEqUnconfirmed shouldBe eq
+
+        // A fresh 0x63 report equal to the timed-out target arrives later.
+        val reportedState = timedOut.podState.withSetting(AapSetting.CustomEq::class, eq)
+        val observed = controller.onStateObserved(
+            reportedState,
+            timedOut.runtimeState,
+            AapSetting.CustomEq::class,
+        )
+        observed.podState.customEqUnconfirmed shouldBe null
+        observed.podState.customEqConfirmationRevision shouldBe 1
+        observed.runtimeState.customEqVerification shouldBe null
+    }
+
+    @Test
     fun `EQ remains queued while both pods are out and gets its own timer on flush`() {
         val controller = AapOutboundController(clock)
         val out = AapPodState().withSetting(

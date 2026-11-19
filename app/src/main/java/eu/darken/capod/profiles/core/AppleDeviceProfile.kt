@@ -57,6 +57,11 @@ data class AppleDeviceProfile(
      * UI to the default 0x0E (no OFF bit) even if the real cycle on-device includes OFF.
      */
     @SerialName("learnedListeningModeCycleMask") val lastRequestedListeningModeCycleMask: Int? = null,
+    /**
+     * Last requested Adaptive Audio noise-reduction strength (0..100). Pro 3 accepts the write but
+     * does not echo it, so the slider would reset to 50 on every reconnect without this.
+     */
+    @SerialName("learnedAdaptiveNoiseLevel") val learnedAdaptiveNoiseLevel: Int? = null,
     @SerialName("stemActions") val stemActions: StemActionsConfig = StemActionsConfig(),
 ) : DeviceProfile, HasReactionConfig {
 
@@ -103,6 +108,7 @@ data class AppleDeviceProfile(
         "batteryEstimateEnabled=$batteryEstimateEnabled, " +
         "learnedAllowOffEnabled=$learnedAllowOffEnabled, " +
         "lastRequestedListeningModeCycleMask=$lastRequestedListeningModeCycleMask, " +
+        "learnedAdaptiveNoiseLevel=$learnedAdaptiveNoiseLevel, " +
         "stemActions=$stemActions" +
         ")"
 }

@@ -79,6 +79,8 @@ class PermissionTool @Inject constructor(
             Permission.IGNORE_BATTERY_OPTIMIZATION,
             Permission.ACCESS_BACKGROUND_LOCATION -> monitorMode == MonitorMode.ALWAYS
             Permission.SYSTEM_ALERT_WINDOW -> anyPopupEnabled
+            // Optional sound-level feature: requested from its own card, not the global list.
+            Permission.RECORD_AUDIO -> false
             else -> true
         }
     }

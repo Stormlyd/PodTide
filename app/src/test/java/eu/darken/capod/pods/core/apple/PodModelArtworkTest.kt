@@ -4,13 +4,11 @@ import eu.darken.capod.R
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
 import org.junit.jupiter.api.Test
 
 /**
- * Guards the P2-06 promise: a model either has its own artwork, or the reuse is explicitly listed
- * in [ArtworkSource]. Adding a model to [PodModel] without art must fail here instead of silently
- * rendering another product's picture.
+ * Guards the v0.4.2 display unification: every model renders the same Pro 3 presentation set.
+ * This is an appearance contract, not a claim that each model has a dedicated photo.
  */
 class PodModelArtworkTest {
 
@@ -34,72 +32,31 @@ class PodModelArtworkTest {
     }
 
     @Test
-    fun `borrowed artwork is documented and complete`() {
-        val nearest = PodModel.entries
-            .filter { it.artwork.source == ArtworkSource.NEAREST }
-            .toSet()
-
-        nearest shouldBe setOf(
-            PodModel.AIRPODS_GEN4,
-            PodModel.AIRPODS_GEN5,
-            PodModel.AIRPODS_GEN5_WIRELESS,
-            PodModel.AIRPODS_PRO,
-            PodModel.AIRPODS_PRO3,
-        )
-    }
-
-    @Test
-    fun `same shell models are documented`() {
-        val shared = PodModel.entries
-            .filter { it.artwork.source == ArtworkSource.SHARED_SHELL }
-            .toSet()
-
-        shared shouldBe setOf(
-            PodModel.AIRPODS_GEN2,
-            PodModel.AIRPODS_MAX_USBC,
-            PodModel.AIRPODS_MAX2,
-            PodModel.AIRPODS_PRO2_USBC,
-            PodModel.FAKE_AIRPODS_GEN1,
-            PodModel.FAKE_AIRPODS_GEN2,
-            PodModel.FAKE_AIRPODS_GEN3,
-        )
-    }
-
-    @Test
-    fun `pro hero art is used only by pro models`() {
+    fun `all models use the unified pro 3 artwork`() {
         PodModel.entries.forEach { model ->
-            val usesProHero = model.artwork.hero == R.drawable.popup_pro_hero
-            usesProHero shouldBe model.usesProHeroArt
+            val art = model.artwork
+            art.hero shouldBe R.drawable.popup_pro_hero
+            art.popupLeft shouldBe R.drawable.popup_pro_earbud
+            art.popupRight shouldBe R.drawable.popup_pro_earbud
+            art.popupCase shouldBe R.drawable.popup_pro_case
+            art.left shouldBe R.drawable.popup_pro_earbud
+            art.right shouldBe R.drawable.popup_pro_earbud
+            art.case shouldBe R.drawable.popup_pro_case
+            model.usesUnifiedArtwork shouldBe true
         }
-
-        val proHero = PodModel.entries.filter { it.usesProHeroArt }.toSet()
-        proHero shouldBe setOf(
-            PodModel.AIRPODS_PRO,
-            PodModel.AIRPODS_PRO2,
-            PodModel.AIRPODS_PRO2_USBC,
-            PodModel.AIRPODS_PRO3,
-            PodModel.FAKE_AIRPODS_PRO,
-            PodModel.FAKE_AIRPODS_PRO2,
-        )
     }
 
     @Test
-    fun `only pro models may render the hero as a banner`() {
-        // A square 96dp line icon stretched into the card banner is what made the standard series
-        // look like "a giant green logo"; only models with a real product illustration may do so.
-        PodModel.entries.forEach { model ->
-            model.artwork.hasIllustration shouldBe model.usesProHeroArt
-            model.artwork.heroKind shouldBe
-                    if (model.usesProHeroArt) HeroKind.PHOTO else HeroKind.ICON
+    fun `artwork source records unified reuse instead of claiming dedicated art`() {
+        knownModels.forEach { model ->
+            model.artwork.source shouldBe ArtworkSource.UNIFIED
         }
-        PodModel.AIRPODS_GEN5.artwork.heroKind shouldBe HeroKind.ICON
-        PodModel.AIRPODS_GEN5_WIRELESS.artwork.heroKind shouldBe HeroKind.ICON
     }
 
     @Test
-    fun `unknown model uses the generic placeholder`() {
+    fun `unknown model still renders the unified art but is marked generic`() {
         PodModel.UNKNOWN.artwork.source shouldBe ArtworkSource.GENERIC
-        PodModel.UNKNOWN.artwork.hero shouldBe R.drawable.device_earbuds_generic_both
-        PodModel.UNKNOWN.iconRes shouldNotBe 0
+        PodModel.UNKNOWN.artwork.hero shouldBe R.drawable.popup_pro_hero
+        PodModel.UNKNOWN.iconRes shouldBeGreaterThan 0
     }
 }

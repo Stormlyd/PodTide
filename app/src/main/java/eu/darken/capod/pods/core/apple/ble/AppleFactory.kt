@@ -171,6 +171,7 @@ class AppleFactory @Inject constructor(
             meta = ApplePods.AppleMeta(
                 isIRKMatch = isIrkMatch,
                 profile = profile,
+                matchReason = matchReason,
             ),
         )
         podHistoryRepo.recordPublished(device)
@@ -194,7 +195,7 @@ class AppleFactory @Inject constructor(
      * logged once per created pod so a bug report can tell "no key", "key did not resolve" and
      * "model-only fallback" apart without exposing keys or raw packets.
      */
-    internal enum class MatchReason {
+    enum class MatchReason {
         IRK_MATCH,
         NO_IRK_MATCH,
         WEAK_MODEL_ONLY,

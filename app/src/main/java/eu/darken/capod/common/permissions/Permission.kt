@@ -81,6 +81,12 @@ enum class Permission(
         descriptionRes = R.string.permission_post_notifications_description,
         permissionId = "android.permission.POST_NOTIFICATIONS",
     ),
+    RECORD_AUDIO(
+        minApiLevel = Build.VERSION_CODES.BASE,
+        labelRes = R.string.permission_record_audio_label,
+        descriptionRes = R.string.permission_record_audio_description,
+        permissionId = "android.permission.RECORD_AUDIO",
+    ),
 }
 
 fun Permission.isRequired(context: Context): Boolean = when {

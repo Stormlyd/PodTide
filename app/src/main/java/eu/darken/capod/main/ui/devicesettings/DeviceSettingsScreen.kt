@@ -79,6 +79,7 @@ import eu.darken.capod.monitor.core.lastSeenFormatted
 import eu.darken.capod.pods.core.apple.aap.AapPodState
 import eu.darken.capod.pods.core.apple.aap.protocol.AapDeviceInfo
 import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
+import eu.darken.capod.pods.core.apple.ble.AppleFactory.MatchReason
 import eu.darken.capod.pods.core.apple.ble.devices.HasStateDetection
 import eu.darken.capod.reaction.core.autoconnect.AutoConnectCondition
 import eu.darken.capod.reaction.core.charged.ChargedSlotScope
@@ -472,10 +473,29 @@ fun DeviceSettingsScreen(
                 }
             }
 
-            // ── Noise Control ────────────────────────────
-            if (features != null && device.isAapConnected && device.hasSelectedPairedDevice &&
-                features.hasAncControl && device.ancMode != null
+            // Broadcast identity could not be linked to a configured profile. Explain why
+            // instead of only telling the user to add another profile.
+            val matchIssue = device?.matchReason
+            if (device != null && device.ble != null && matchIssue != null && matchIssue != MatchReason.IRK_MATCH &&
+                matchIssue != MatchReason.NO_IRK_MATCH && matchIssue != MatchReason.WEAK_MODEL_ONLY
             ) {
+                item("match_issue_info") {
+                    SettingsInfoBox(
+                        title = stringResource(R.string.device_match_issue_title),
+                        text = stringResource(
+                            when (matchIssue) {
+                                MatchReason.NO_PROFILES -> R.string.device_match_issue_no_profiles
+                                MatchReason.AMBIGUOUS_SAME_MODEL -> R.string.device_match_issue_ambiguous
+                                MatchReason.IRK_KEY_UNRESOLVED -> R.string.device_match_issue_key_unresolved
+                                else -> R.string.device_match_issue_model_mismatch
+                            }
+                        ),
+                    )
+                }
+            }
+
+            // ── Noise Control ────────────────────────────
+            if (features != null && device.hasSelectedPairedDevice && features.hasAncControl) {
                 item("noise_control_section") {
                     NoiseControlCard(
                         device = device,

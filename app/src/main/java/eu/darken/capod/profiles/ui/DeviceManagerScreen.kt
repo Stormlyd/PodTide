@@ -247,13 +247,10 @@ private fun ProfileRow(
             .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val showProArtwork = profile.model in setOf(
-            PodModel.AIRPODS_PRO, PodModel.AIRPODS_PRO2, PodModel.AIRPODS_PRO2_USBC, PodModel.AIRPODS_PRO3,
-        )
         Image(
-            painter = painterResource(if (showProArtwork) R.drawable.popup_pro_hero else profile.model.iconRes),
+            painter = painterResource(R.drawable.popup_pro_hero),
             contentDescription = null,
-            modifier = Modifier.size(if (showProArtwork) 60.dp else 40.dp),
+            modifier = Modifier.size(60.dp),
             contentScale = ContentScale.Fit,
         )
         Spacer(modifier = Modifier.width(16.dp))

@@ -19,6 +19,8 @@ data class AapPodState(
     val pendingCustomEq: AapSetting.CustomEq? = null,
     /** Advances only when a fresh matching 0x63 report confirms a pending custom EQ write. */
     val customEqConfirmationRevision: Long = 0,
+    /** Target of a custom EQ write that timed out without a matching report; clears on a late match. */
+    val customEqUnconfirmed: AapSetting.CustomEq? = null,
     val pendingSettingsCount: Int = 0,
     /**
      * 64-bit features bitmask from the Connect Response (packet type 0x0001).
@@ -85,6 +87,8 @@ data class AapPodState(
         val type: BatteryType,
         val percent: Float,
         val charging: ChargingState,
+        /** Wall-clock time this slot was actually present in a battery report; null for old data. */
+        val reportedAt: Instant? = null,
     )
 
     enum class BatteryType(val wireValue: Int) {

@@ -15,4 +15,7 @@
     <string name="custom_eq_device_recommended">Device reports: Recommended</string>
     <string name="custom_eq_device_custom">Device reports: Custom · %1$d / %2$d / %3$d</string>
     <string name="custom_eq_not_confirmed">The device did not confirm the equalizer setting. Please retry.</string>
+    <string name="custom_eq_current">Device already reports this setting.</string>
+    <string name="custom_eq_device_now_matches">The device now reports the requested setting.</string>
+    <string name="custom_eq_unconfirmed">No matching device report was received yet. The write may still be unapplied.</string>
 </resources>

@@ -502,6 +502,21 @@ class OverviewViewModel @Inject constructor(
         }
     }
 
+    fun setAdaptiveNoise(device: PodDevice, level: Int) {
+        val address = device.address ?: return
+        launch {
+            try {
+                aapManager.sendCommand(address, AapCommand.SetAdaptiveAudioNoise(level))
+                device.profileId?.let { profileId ->
+                    profilesRepo.updateAppleProfile(profileId) { it.copy(learnedAdaptiveNoiseLevel = level) }
+                }
+                log(TAG, INFO) { "Adaptive noise level set to $level for $address" }
+            } catch (e: Exception) {
+                log(TAG, WARN) { "Failed to set adaptive noise level: ${e.message}" }
+            }
+        }
+    }
+
     companion object {
         private const val FREE_DEVICE_LIMIT = 1
 

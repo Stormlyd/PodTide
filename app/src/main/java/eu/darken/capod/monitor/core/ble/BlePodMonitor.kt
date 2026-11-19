@@ -37,10 +37,13 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.sync.Mutex
@@ -97,6 +100,14 @@ class BlePodMonitor @Inject constructor(
      * the user's original settings for free.
      */
     private val compatOverride = MutableStateFlow<CompatOverride?>(null)
+
+    /** Last scan start/transport failure. Cleared when data arrives or a new configuration starts. */
+    private val _lastScanIssue = MutableStateFlow<String?>(null)
+    val lastScanIssue: StateFlow<String?> = _lastScanIssue
+
+    fun clearScanIssue() {
+        _lastScanIssue.value = null
+    }
 
     fun setCompatOverride(override: CompatOverride?) {
         log(TAG) { "setCompatOverride($override)" }
@@ -255,6 +266,7 @@ class BlePodMonitor @Inject constructor(
             }
 
             flow {
+                _lastScanIssue.value = null
                 emitAll(
                     bleScanner.scan(
                         filters = filters,
@@ -269,6 +281,15 @@ class BlePodMonitor @Inject constructor(
                     )
                 )
             }
+        }
+        .onEach { _lastScanIssue.value = null }
+        .catch { e ->
+            _lastScanIssue.value = when (e) {
+                is BleScanException -> "scan failed (code=${e.errorCode})"
+                is SecurityException -> "scan permission denied: ${e.message}"
+                else -> "${e::class.simpleName}: ${e.message}"
+            }
+            throw e
         }
         .map { it.onlyNewAndUnique() }
 

@@ -2,6 +2,7 @@ package eu.darken.capod.pods.core.apple.ble.devices
 
 import eu.darken.capod.common.lowerNibble
 import eu.darken.capod.common.upperNibble
+import eu.darken.capod.pods.core.apple.ble.AppleFactory
 import eu.darken.capod.pods.core.apple.ble.BlePodSnapshot
 import eu.darken.capod.pods.core.apple.ble.protocol.ProximityPayload
 import eu.darken.capod.profiles.core.AppleDeviceProfile
@@ -59,6 +60,8 @@ interface ApplePods : BlePodSnapshot {
     data class AppleMeta(
         val isIRKMatch: Boolean = false,
         override val profile: AppleDeviceProfile? = null,
+        /** Why this advertisement was or was not linked to a configured profile. */
+        val matchReason: AppleFactory.MatchReason? = null,
     ) : BlePodSnapshot.Meta
 
     override val meta: AppleMeta

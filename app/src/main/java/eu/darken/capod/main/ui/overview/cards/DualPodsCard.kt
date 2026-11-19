@@ -54,7 +54,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import eu.darken.capod.R
+import eu.darken.capod.monitor.core.AapStage
 import eu.darken.capod.monitor.core.visibleAncModes
+import eu.darken.capod.main.ui.overview.cards.components.AdaptiveNoiseControl
 import eu.darken.capod.main.ui.overview.cards.components.AncModeSelector
 import eu.darken.capod.main.ui.overview.cards.components.BatteryCapsule
 import eu.darken.capod.main.ui.overview.cards.components.CompactBatterySummary
@@ -82,7 +84,6 @@ import eu.darken.capod.monitor.core.batteryCaseReading
 import eu.darken.capod.monitor.core.cachedBatteryFormatted
 import eu.darken.capod.pods.core.apple.PodModel
 import eu.darken.capod.pods.core.apple.artwork
-import eu.darken.capod.pods.core.apple.usesProHeroArt
 import eu.darken.capod.pods.core.apple.aap.AapPodState
 import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
 import eu.darken.capod.pods.core.apple.ble.batteryProgress
@@ -103,6 +104,7 @@ fun DualPodsCard(
     batteryEstimate: BatteryEstimate? = null,
     onToggleCollapse: (() -> Unit)? = null,
     onAncModeChange: ((AapSetting.AncMode.Value) -> Unit)? = null,
+    onAdaptiveNoiseChange: ((Int) -> Unit)? = null,
     onUpgrade: (() -> Unit)? = null,
     onDeviceSettings: (() -> Unit)? = null,
     onEditProfile: (() -> Unit)? = null,
@@ -122,31 +124,14 @@ fun DualPodsCard(
                 .padding(16.dp)
                 .animateContentSize(),
         ) {
-            // Give the device its own visual anchor in the expanded view. Only models with a real
-            // product illustration get the banner: stretching a square line icon to 112dp is what
-            // made the standard series look like a giant logo, so those get a compact icon instead.
+            // Every model uses the unified Pro 3 illustration; identity stays in the label/model.
             if (!isCollapsed) {
-                val artwork = device.model.artwork
-                when {
-                    artwork.hasIllustration -> Image(
-                        painter = painterResource(artwork.hero),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxWidth().height(112.dp),
-                        contentScale = ContentScale.Fit,
-                    )
-
-                    else -> Box(
-                        modifier = Modifier.fillMaxWidth().height(64.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Image(
-                            painter = painterResource(artwork.hero),
-                            contentDescription = null,
-                            modifier = Modifier.size(52.dp),
-                            contentScale = ContentScale.Fit,
-                        )
-                    }
-                }
+                Image(
+                    painter = painterResource(device.model.artwork.hero),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxWidth().height(112.dp),
+                    contentScale = ContentScale.Fit,
+                )
                 Spacer(Modifier.height(6.dp))
             }
             Row(
@@ -248,6 +233,7 @@ fun DualPodsCard(
                     now = now,
                     batteryEstimate = batteryEstimate,
                     onAncModeChange = onAncModeChange,
+                    onAdaptiveNoiseChange = onAdaptiveNoiseChange,
                 )
             }
         }
@@ -261,6 +247,7 @@ private fun ColumnScope.DualPodsCardExpanded(
     now: Instant,
     batteryEstimate: BatteryEstimate?,
     onAncModeChange: ((AapSetting.AncMode.Value) -> Unit)?,
+    onAdaptiveNoiseChange: ((Int) -> Unit)?,
 ) {
     val context = LocalContext.current
     Spacer(modifier = Modifier.height(16.dp))
@@ -299,7 +286,7 @@ private fun ColumnScope.DualPodsCardExpanded(
                 PodGauge(
                     label = stringResource(R.string.popup_right),
                     iconRes = device.model.artwork.popupRight,
-                    mirrorIcon = device.model.usesProHeroArt,
+                    mirrorIcon = true,
                     batteryPercent = device.batteryRight,
                     chargingState = device.rightPodChargingState
                         ?: device.isRightPodCharging?.let { if (it) AapPodState.ChargingState.CHARGING else null },
@@ -336,16 +323,44 @@ private fun ColumnScope.DualPodsCardExpanded(
         )
     }
 
-    // ANC mode selector
+    // ANC mode selector — shown from model capability so a still-connecting channel reads as
+    // "waiting" instead of silently looking unsupported.
     val ancMode = device.ancMode
-    if (device.isAapConnected && device.hasAncControl && ancMode != null) {
+    if (device.hasAncControl) {
         Spacer(modifier = Modifier.height(12.dp))
-        AncModeSelector(
-            currentMode = ancMode.current,
-            supportedModes = device.visibleAncModes,
-            onModeSelected = { onAncModeChange?.invoke(it) },
-            pendingMode = device.pendingAncMode,
-        )
+        if (ancMode != null) {
+            AncModeSelector(
+                currentMode = ancMode.current,
+                supportedModes = device.visibleAncModes,
+                onModeSelected = { onAncModeChange?.invoke(it) },
+                pendingMode = device.pendingAncMode,
+                enabled = device.isAapReady,
+            )
+        } else {
+            Text(
+                text = stringResource(
+                    when (device.aapStage) {
+                        AapStage.NOT_CONNECTED -> R.string.noise_control_waiting_system
+                        AapStage.NO_SESSION -> R.string.noise_control_channel_failed
+                        AapStage.OPENING, AapStage.HANDSHAKING -> R.string.noise_control_waiting_channel
+                        AapStage.READY -> R.string.noise_control_waiting_state
+                    }
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            )
+        }
+        val adaptiveMode = ancMode?.current == AapSetting.AncMode.Value.ADAPTIVE ||
+            device.pendingAncMode == AapSetting.AncMode.Value.ADAPTIVE
+        if (device.hasAdaptiveAudioNoise && adaptiveMode) {
+            Spacer(modifier = Modifier.height(8.dp))
+            AdaptiveNoiseControl(
+                level = device.adaptiveAudioNoise?.level ?: 50,
+                enabled = device.isAapReady,
+                onLevelChange = { onAdaptiveNoiseChange?.invoke(it) },
+            )
+        }
     }
 
     // Debug info

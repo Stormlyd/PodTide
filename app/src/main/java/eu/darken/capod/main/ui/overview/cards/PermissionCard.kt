@@ -13,6 +13,7 @@ import androidx.compose.material.icons.twotone.Bluetooth
 import androidx.compose.material.icons.twotone.BluetoothConnected
 import androidx.compose.material.icons.twotone.Layers
 import androidx.compose.material.icons.twotone.MyLocation
+import androidx.compose.material.icons.twotone.Mic
 import androidx.compose.material.icons.twotone.Notifications
 import androidx.compose.material.icons.twotone.ShareLocation
 import androidx.compose.material3.Button
@@ -104,4 +105,5 @@ private fun Permission.iconVector(): ImageVector = when (this) {
     Permission.IGNORE_BATTERY_OPTIMIZATION -> Icons.TwoTone.BatterySaver
     Permission.SYSTEM_ALERT_WINDOW -> Icons.TwoTone.Layers
     Permission.POST_NOTIFICATIONS -> Icons.TwoTone.Notifications
+    Permission.RECORD_AUDIO -> Icons.TwoTone.Mic
 }
