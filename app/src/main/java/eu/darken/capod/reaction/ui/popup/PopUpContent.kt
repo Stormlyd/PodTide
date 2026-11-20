@@ -110,6 +110,17 @@ fun PopUpContent(device: PodDevice, onClose: () -> Unit, modifier: Modifier = Mo
 @Composable
 private fun PopupArtwork(device: PodDevice, compact: Boolean) {
     val height = if (compact) 100.dp else 182.dp
+    if (!device.hasDualPods) {
+        Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.Center) {
+            Image(
+                painterResource(R.drawable.popup_pro_hero),
+                null,
+                Modifier.fillMaxWidth(.78f).height(height * .78f),
+                contentScale = ContentScale.Fit,
+            )
+        }
+        return
+    }
     var revealed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { revealed = true }
     val rise by animateFloatAsState(if (revealed) 1f else 0f, tween(750), label = "earbud rise")

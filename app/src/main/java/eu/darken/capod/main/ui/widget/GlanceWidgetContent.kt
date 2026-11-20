@@ -329,7 +329,7 @@ private fun GlancePodItem(
                 provider = ImageProvider(icon),
                 contentDescription = null,
                 modifier = GlanceModifier.size(iconSize.dp),
-                colorFilter = iconTint,
+                colorFilter = if (isPhotoArtwork(icon)) null else iconTint,
             )
             Text(
                 text = formatGlancePercent(percent) + if (estimateBelow) "" else estimateSuffix(estimate),
@@ -380,7 +380,7 @@ private fun GlanceTinyPodItem(
             provider = ImageProvider(icon),
             contentDescription = null,
             modifier = GlanceModifier.size(14.dp),
-            colorFilter = iconTint,
+            colorFilter = if (isPhotoArtwork(icon)) null else iconTint,
         )
         Text(
             text = formatGlancePercent(percent),
@@ -390,6 +390,11 @@ private fun GlanceTinyPodItem(
         )
     }
 }
+
+private fun isPhotoArtwork(resId: Int): Boolean =
+    resId == R.drawable.popup_pro_earbud ||
+        resId == R.drawable.popup_pro_case ||
+        resId == R.drawable.popup_pro_hero
 
 @Composable
 private fun GlanceDeviceLabel(

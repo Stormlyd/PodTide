@@ -16,8 +16,8 @@
 
         <ImageView
             android:id="@+id/headphones_icon"
-            style="@style/PodInfoItemIcon.Notification"
-            android:src="@drawable/twotone_headphones_24" />
+            style="@style/PodInfoItemIcon.Notification.Artwork"
+            android:src="@drawable/popup_pro_earbud" />
 
         <TextView
             android:id="@+id/headphones_label"

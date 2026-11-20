@@ -80,6 +80,7 @@ import eu.darken.capod.common.compose.PreviewWrapper
 import eu.darken.capod.common.compose.preview.MockPodDataProvider
 import eu.darken.capod.common.compose.systemBarsAndCutoutInsets
 import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.artwork
 import eu.darken.capod.profiles.core.DeviceProfile
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -457,9 +458,9 @@ private fun ProfileSelectionItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(profile.model.iconRes),
+                painter = androidx.compose.ui.res.painterResource(profile.model.artwork.popupLeft),
                 contentDescription = null,
-                modifier = Modifier.size(28.dp),
+                modifier = Modifier.size(32.dp),
             )
 
             Spacer(modifier = Modifier.width(16.dp))
