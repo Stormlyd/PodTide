@@ -588,7 +588,7 @@ fun DeviceSettingsScreen(
             // Settings — only show when AAP is connected
             if (features != null && device.isAapConnected && device.hasSelectedPairedDevice) {
 
-                if (device.model == eu.darken.capod.pods.core.apple.PodModel.AIRPODS_PRO3) {
+                if (features.hasCustomEq) {
                     item("custom_eq_section") {
                         CustomEqCard(device = device, enabled = enabled, onApply = onCustomEqApply)
                     }

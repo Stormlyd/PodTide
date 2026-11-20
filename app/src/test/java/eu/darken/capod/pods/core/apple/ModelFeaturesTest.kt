@@ -460,6 +460,17 @@ class ModelFeaturesTest : BaseTest() {
         PodModel.AIRPODS_MAX2,
     )
 
+    private val customEqModels = setOf(
+        PodModel.AIRPODS_GEN4,
+        PodModel.AIRPODS_GEN4_ANC,
+        PodModel.AIRPODS_GEN5,
+        PodModel.AIRPODS_GEN5_WIRELESS,
+        PodModel.AIRPODS_PRO2,
+        PodModel.AIRPODS_PRO2_USBC,
+        PodModel.AIRPODS_PRO3,
+        PodModel.AIRPODS_MAX2,
+    )
+
     private val featureExpectations = listOf(
         feature("hasDualPods", { it.hasDualPods }, dualPodModels),
         feature("hasCase", { it.hasCase }, dualPodModels),
@@ -483,5 +494,6 @@ class ModelFeaturesTest : BaseTest() {
         feature("hasStemConfig", { it.hasStemConfig }, stemConfigModels),
         feature("hasSleepDetection", { it.hasSleepDetection }, sleepDetectionModels),
         feature("hasDynamicEndOfCharge", { it.hasDynamicEndOfCharge }, setOf(PodModel.AIRPODS_PRO3)),
+        feature("hasCustomEq", { it.hasCustomEq }, customEqModels),
     )
 }

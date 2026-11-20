@@ -97,6 +97,7 @@ enum class PodModel(
             hasMicrophoneMode = true,
             hasEarDetectionToggle = true,
             hasSleepDetection = true,
+            hasCustomEq = true,
         ),
         batterySpec = BatterySpec(listeningHoursAncOff = 5f, chargeFractionPerHour = 2.4f),
         caseSpec = CaseSpec(fullPairRecharges = 5.0f),
@@ -131,6 +132,7 @@ enum class PodModel(
             hasAllowOffOption = true,
             hasStemConfig = true,
             hasSleepDetection = true,
+            hasCustomEq = true,
         ),
         batterySpec = BatterySpec(listeningHoursAncOn = 4f, listeningHoursAncOff = 5f, chargeFractionPerHour = 2.4f),
         caseSpec = CaseSpec(fullPairRecharges = 4.0f),
@@ -165,6 +167,7 @@ enum class PodModel(
             hasAllowOffOption = true,
             hasStemConfig = true,
             hasSleepDetection = true,
+            hasCustomEq = true,
         ),
         batterySpec = BatterySpec(listeningHoursAncOn = 4f, listeningHoursAncOff = 6f, chargeFractionPerHour = 2.0f),
         caseSpec = CaseSpec(fullPairRecharges = 4.0f),
@@ -200,6 +203,7 @@ enum class PodModel(
             hasAllowOffOption = true,
             hasStemConfig = true,
             hasSleepDetection = true,
+            hasCustomEq = true,
         ),
         batterySpec = BatterySpec(listeningHoursAncOn = 4f, listeningHoursAncOff = 6f, chargeFractionPerHour = 2.0f),
         caseSpec = CaseSpec(fullPairRecharges = 4.0f),
@@ -261,6 +265,7 @@ enum class PodModel(
             hasAllowOffOption = true,
             hasStemConfig = true,
             hasSleepDetection = true,
+            hasCustomEq = true,
         ),
         batterySpec = BatterySpec(listeningHoursAncOn = 6f, chargeFractionPerHour = 2.0f),
         caseSpec = CaseSpec(fullPairRecharges = 4.0f),
@@ -297,6 +302,7 @@ enum class PodModel(
             hasAllowOffOption = true,
             hasStemConfig = true,
             hasSleepDetection = true,
+            hasCustomEq = true,
         ),
         batterySpec = BatterySpec(listeningHoursAncOn = 6f, chargeFractionPerHour = 2.0f),
         caseSpec = CaseSpec(fullPairRecharges = 4.0f),
@@ -334,6 +340,7 @@ enum class PodModel(
             hasStemConfig = true,
             hasSleepDetection = true,
             hasDynamicEndOfCharge = true,
+            hasCustomEq = true,
         ),
         batterySpec = BatterySpec(listeningHoursAncOn = 8f, chargeFractionPerHour = 1.5f),
         caseSpec = CaseSpec(fullPairRecharges = 2.0f),
@@ -396,6 +403,7 @@ enum class PodModel(
             hasEarDetectionToggle = true,
             hasListeningModeCycle = true,
             hasAllowOffOption = true,
+            hasCustomEq = true,
         ),
         batterySpec = BatterySpec(listeningHoursAncOn = 20f, chargeFractionPerHour = 0.9f),
         modelNumbers = setOf("A3454"), // headphones
@@ -721,6 +729,8 @@ enum class PodModel(
          * on connect and accept writes to it.
          */
         val hasDynamicEndOfCharge: Boolean = false,
+        /** Three-band Custom EQ (AAP opcode 0x63) supported on H2-chip AirPods firmware. */
+        val hasCustomEq: Boolean = false,
     )
 
     /**

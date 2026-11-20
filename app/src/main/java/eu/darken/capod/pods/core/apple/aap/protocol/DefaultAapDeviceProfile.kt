@@ -80,6 +80,15 @@ class DefaultAapDeviceProfile(
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     )
 
+    override fun encodeEqUnlock(): ByteArray = byteArrayOf(
+        0x04, 0x00, 0x04, 0x00,
+        AapMessageType.SET_COUNTRY_CODE.value.toByte(), 0x00,
+        0x00, 0xff.toByte(),
+        0xff.toByte(), 0xff.toByte(),
+        0xff.toByte(), 0xff.toByte(),
+        0xff.toByte(), 0xff.toByte(),
+    )
+
     override fun encodeCommand(command: AapCommand): ByteArray = when (command) {
         is AapCommand.SetCustomEq -> byteArrayOf(
             0x04, 0x00, 0x04, 0x00, 0x63, 0x00, 0x05, 0x00, 0x01,

@@ -115,6 +115,11 @@ internal class AapConnection(
             sock.outputStream.flush()
             log(TAG) { "Handshake sent" }
 
+            // Send InitExt — enables advanced features on H2+ devices, ignored by older models
+            sock.outputStream.write(profile.encodeInitExt())
+            sock.outputStream.flush()
+            log(TAG) { "InitExt sent" }
+
             // Send notification enable packets — tells device to push battery/settings updates
             for (packet in profile.encodeNotificationEnable()) {
                 sock.outputStream.write(packet)
@@ -122,10 +127,12 @@ internal class AapConnection(
             }
             log(TAG) { "Notification enable sent" }
 
-            // Send InitExt — enables advanced features on H2+ devices, ignored by older models
-            sock.outputStream.write(profile.encodeInitExt())
-            sock.outputStream.flush()
-            log(TAG) { "InitExt sent" }
+            // Send 0x29 EQ unlock packet — required by firmware to accept Custom EQ (0x63) writes
+            profile.encodeEqUnlock()?.let { eqUnlock ->
+                sock.outputStream.write(eqUnlock)
+                sock.outputStream.flush()
+                log(TAG) { "EQ unlock sent" }
+            }
 
             // Request private keys (IRK + ENC) for BLE encrypted battery
             profile.encodePrivateKeyRequest()?.let { keyReq ->
@@ -229,6 +236,7 @@ internal class AapConnection(
                         }
                         engine.processConnectResponse(packet)
                         if (packet.status != 0) break
+                        dispatchEqUnlock()
                         dispatchCaseInfoProbe()
                     }
                     is AapPacket.Disconnect -> {
@@ -259,6 +267,27 @@ internal class AapConnection(
             if (isActive) log(TAG, Logging.Priority.ERROR) { "Read error: $e" }
         } finally {
             closeSession()
+        }
+    }
+
+    /**
+     * Fire-and-forget 0x29 unlock frame sent right after ConnectResponse so firmware
+     * accepts Custom EQ (0x63) writes even if pre-ConnectResponse packets are ignored.
+     */
+    private suspend fun dispatchEqUnlock() {
+        val bytes = profile.encodeEqUnlock() ?: return
+        try {
+            writeMutex.withLock {
+                withContext(Dispatchers.IO) {
+                    val sock = socket ?: return@withContext
+                    sock.outputStream.write(bytes)
+                    sock.outputStream.flush()
+                    val hex = bytes.joinToString(" ") { "%02X".format(it) }
+                    log(TAG, Logging.Priority.VERBOSE) { "SEND EqUnlock len=${bytes.size} raw=$hex" }
+                }
+            }
+        } catch (e: Exception) {
+            log(TAG, Logging.Priority.WARN) { "EqUnlock send failed: $e" }
         }
     }
 

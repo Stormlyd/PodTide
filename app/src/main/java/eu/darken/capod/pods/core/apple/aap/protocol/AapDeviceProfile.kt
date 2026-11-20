@@ -57,6 +57,13 @@ interface AapDeviceProfile {
     fun encodeInitExt(): ByteArray
 
     /**
+     * Encode the EQ / country-code unlock packet (0x29).
+     * Required by firmware before Custom EQ (0x63) writes are accepted.
+     * Returns null when the profile does not send an unlock packet.
+     */
+    fun encodeEqUnlock(): ByteArray? = null
+
+    /**
      * Encode a private key request (command 0x30).
      * Returns null if the model doesn't support key exchange.
      */

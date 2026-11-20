@@ -62,6 +62,7 @@ class AapSessionEngineTest : BaseTest() {
         every { encodeHandshake() } returns ByteArray(10)
         every { encodeNotificationEnable() } returns emptyList()
         every { encodeInitExt() } returns ByteArray(10)
+        every { encodeEqUnlock() } returns null
         every { encodePrivateKeyRequest() } returns null
         every { encodeCaseInfoRequest() } returns null
         block()

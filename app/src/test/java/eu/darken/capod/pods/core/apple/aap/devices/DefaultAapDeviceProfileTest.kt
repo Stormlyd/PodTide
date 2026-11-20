@@ -62,6 +62,23 @@ class DefaultAapDeviceProfileTest : BaseAapSessionTest() {
         }
     }
 
+    // ── EQ Unlock ────────────────────────────────────────────
+
+    @Nested
+    inner class EqUnlockTests {
+        @Test
+        fun `encodes 14-byte 0x29 unlock frame`() {
+            profile.encodeEqUnlock()!!.toList() shouldContainExactly listOf(
+                0x04, 0x00, 0x04, 0x00,
+                0x29, 0x00,
+                0x00, 0xff,
+                0xff, 0xff,
+                0xff, 0xff,
+                0xff, 0xff,
+            ).map { it.toByte() }
+        }
+    }
+
     // ── Supported ANC Modes per model ────────────────────────
 
     @Nested
